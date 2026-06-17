@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-memory-engine"
+version = "0.1.0"
+description = "Reusable lessons/memory engine for Claude Code: frontmatter lessons, auto-CATALOG, offline retrieval, path-triggered lessons, auto-maintenance, parallel-session and sub-agent guards."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Arnoldig" }]
+keywords = ["claude-code", "memory", "lessons", "hooks", "llm-agent"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = []  # чистый stdlib — нулевые зависимости (важно: гоняется в shell-хуке)
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+claude-memory = "claude_memory.config:main"
+
+[tool.setuptools]
+packages = ["claude_memory"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
