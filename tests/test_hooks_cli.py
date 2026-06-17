@@ -81,3 +81,22 @@ def test_agent_guard_via_dispatcher(cfg, tmp_path) -> None:
     event = {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore"}}
     r = H.ev_agent_guard(event, cfg, "s1", str(tmp_path / "tmp"))
     assert r is not None and "model" in r
+
+
+def test_session_end_writes_stale(cfg) -> None:
+    write_lesson(cfg.memory_dir, "feedback_old.md", description="d", reverify_after="2026-01-01")
+    H.ev_session_end(cfg)
+    stale = Path(cfg.memory_dir) / "_stale_pending.md"
+    assert stale.exists() and "feedback_old.md" in stale.read_text(encoding="utf-8")
+
+
+def test_session_start_surfaces_stale(cfg) -> None:
+    (Path(cfg.memory_dir) / "_stale_pending.md").write_text(
+        "# Память — нужна повторная проверка\n\n- **feedback_x.md** просрочен\n", encoding="utf-8"
+    )
+    out = H.ev_session_start(cfg)
+    assert "повторная проверка" in out and "feedback_x.md" in out
+
+
+def test_stop_event_non_git_is_none(cfg, tmp_path) -> None:
+    assert H.ev_stop(cfg, str(tmp_path / "nope"), now_ts=10_000_000_000) is None

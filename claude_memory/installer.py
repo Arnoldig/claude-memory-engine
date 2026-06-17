@@ -25,6 +25,8 @@ HOOK_REGISTRATIONS: List[Tuple[str, str, str, int]] = [
     ("PreToolUse", "Agent", "agent-guard", 10),
     ("PostToolUse", "Agent", "agent-log", 10),
     ("PreCompact", "", "pre-compact", 10),
+    ("SessionEnd", "clear|resume|logout|prompt_input_exit|bypass_permissions_disabled|other", "session-end", 10),
+    ("Stop", "", "stop-check", 10),
 ]
 
 

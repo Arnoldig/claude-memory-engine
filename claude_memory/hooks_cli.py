@@ -21,8 +21,9 @@ import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 from . import (
     catalog_generate,
@@ -31,6 +32,8 @@ from . import (
     memory_retrieve,
     precedent_index,
     session_marker_guard,
+    staleness,
+    stop_check,
     subagent_efficiency_log,
     subagent_model_guard,
 )
@@ -96,6 +99,15 @@ def ev_session_start(cfg: MemoryConfig) -> str:
                 idx_path.write_text(idx, encoding="utf-8")
             except OSError:
                 continue
+    # показать накопленный SessionEnd-сканом долг устаревания (если есть)
+    stale_path = Path(cfg.memory_dir) / staleness.STALE_FILE
+    if stale_path.is_file():
+        try:
+            body = stale_path.read_text(encoding="utf-8").strip()
+            if body:
+                out_lines.append(body)
+        except OSError:
+            pass
     return "\n".join(out_lines)
 
 
@@ -245,6 +257,16 @@ def ev_pre_compact(cfg: MemoryConfig) -> str:
     return ""
 
 
+def ev_session_end(cfg: MemoryConfig) -> None:
+    """SessionEnd: скан устаревания → `_stale_pending.md` (покажет следующий SessionStart)."""
+    staleness.run(cfg)
+
+
+def ev_stop(cfg: MemoryConfig, cwd: str, now_ts: float) -> Optional[str]:
+    """Stop: причина блокировки завершения (свежий коммит без записанного урока) или None."""
+    return stop_check.should_remind(cfg, cwd, now_ts)
+
+
 # ── Диспетчер ────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -278,6 +300,13 @@ def main() -> None:
             ev_agent_log(data, cfg, session_id, datetime.datetime.now().isoformat() + "Z")
         elif event_name == "pre-compact":
             _emit(ev_pre_compact(cfg))
+        elif event_name == "session-end":
+            ev_session_end(cfg)
+        elif event_name == "stop-check":
+            # Stop-протокол: блокировка через JSON {"continue": false, "stopReason": …} в stdout.
+            reason = ev_stop(cfg, os.getcwd(), time.time())
+            if reason:
+                print(json.dumps({"continue": False, "stopReason": reason}, ensure_ascii=False))
     except SystemExit:
         raise
     except Exception:  # noqa: BLE001 — любая иная ошибка хука: fail-open

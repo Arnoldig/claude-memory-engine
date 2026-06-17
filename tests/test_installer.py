@@ -21,7 +21,10 @@ def test_merge_into_empty_adds_all() -> None:
     cmds = _commands(merged)
     assert f"bash {SCRIPT} retrieve" in cmds
     assert f"bash {SCRIPT} agent-guard" in cmds
+    assert f"bash {SCRIPT} session-end" in cmds   # SessionEnd staleness
+    assert f"bash {SCRIPT} stop-check" in cmds     # Stop lessons reminder
     assert "UserPromptSubmit" in merged["hooks"]
+    assert "SessionEnd" in merged["hooks"] and "Stop" in merged["hooks"]
 
 
 def test_merge_is_idempotent() -> None:

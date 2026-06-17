@@ -94,6 +94,17 @@ class MemoryConfig:
     precedent_keyword: str = "Прецедент"
     precedent_pointer: str = "перенесён в"
 
+    # — скан устаревания (staleness, SessionEnd) —
+    # Каталоги, которые НЕ обходим при проверке «протухших» applies_to-привязок.
+    staleness_skip_dirs: Tuple[str, ...] = (
+        ".git", ".venv", "node_modules", "__pycache__", ".pytest_cache",
+        ".mypy_cache", "dist", "build", ".ruff_cache", ".claude",
+    )
+
+    # — напоминание про уроки при завершении (Stop) —
+    stop_lessons_enabled: bool = True            # блокировать Stop, если есть свежий коммит без урока
+    stop_commit_age_limit_seconds: int = 14400   # «свежий» коммит — моложе этого (4 часа)
+
     def topic_titles(self) -> dict:
         return dict(self.topic_order)
 
@@ -103,6 +114,7 @@ class MemoryConfig:
 # Поля, чьи списки-кортежи приходят из JSON как list → нормализуем в tuple.
 _TUPLE_FIELDS = {
     "lesson_prefixes", "watched_dirs", "stopwords", "routine_subagent_types",
+    "staleness_skip_dirs",
 }
 
 
