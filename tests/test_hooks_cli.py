@@ -100,3 +100,26 @@ def test_session_start_surfaces_stale(cfg) -> None:
 
 def test_stop_event_non_git_is_none(cfg, tmp_path) -> None:
     assert H.ev_stop(cfg, str(tmp_path / "nope"), now_ts=10_000_000_000) is None
+
+
+def test_applies_to_cli_mode(cfg, tmp_path, monkeypatch, capsys) -> None:
+    """`cme_hook.sh applies-to <path>` печатает уроки по пути и НЕ читает stdin."""
+    import json
+    import sys
+
+    import pytest
+
+    from claude_memory import config as C
+
+    write_lesson(cfg.memory_dir, "feedback_app.md", description="rules", applies_to="[app/*.py]")
+    cf = tmp_path / "c.json"
+    cf.write_text(json.dumps({"memory_dir": cfg.memory_dir, "project_root": cfg.project_root}))
+    monkeypatch.setenv("CLAUDE_MEMORY_CONFIG", str(cf))
+    monkeypatch.setattr(sys, "argv", ["cme", "applies-to", f"{cfg.project_root}/app/x.py"])
+    C.reset_cache()
+    try:
+        with pytest.raises(SystemExit):
+            H.main()
+    finally:
+        C.reset_cache()
+    assert "feedback_app.md" in capsys.readouterr().out

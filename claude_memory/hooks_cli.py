@@ -347,6 +347,15 @@ def main() -> None:
         cfg = get_config()
     except Exception:  # noqa: BLE001 — fail-open: конфиг сломан → не мешаем работе
         sys.exit(0)
+    # CLI-режим (НЕ хук-событие): список уроков по пути для ручного вызова на фазе плана.
+    # stdin НЕ читаем (иначе в терминале без редиректа зависнем на чтении).
+    if event_name == "applies-to":
+        target = sys.argv[2] if len(sys.argv) > 2 else ""
+        if target:
+            out = format_lines(find_lessons_for_path(target, cfg))
+            if out:
+                print(out)
+        sys.exit(0)
     data = _read_event()
     session_id = str(data.get("session_id") or "nosess")
     tmpdir = tempfile.gettempdir()
