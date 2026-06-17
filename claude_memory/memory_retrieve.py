@@ -28,14 +28,16 @@ from typing import Dict, List, Optional, Tuple
 
 from .applies_to import find_lessons_for_path
 from .config import MemoryConfig, get_config
+from .messages import msg
 
 
 def _path_re(cfg: MemoryConfig) -> "re.Pattern[str]":
     """Регэксп path-подобных токенов в запросе («src/app.py», «docs/x.md»)."""
     dirs = "|".join(re.escape(d) for d in cfg.watched_dirs)
+    exts = "|".join(re.escape(e) for e in cfg.retrieve_extensions)
     return re.compile(
         rf"(?:{dirs})/[\w./*-]+"
-        r"|[\w/-]+\.(?:py|html|js|ts|css|sh|ya?ml|json|md|rs|go|java|rb)\b"
+        rf"|[\w/-]+\.(?:{exts})\b"
     )
 
 
@@ -86,7 +88,7 @@ def score_files(query: str, cfg: Optional[MemoryConfig] = None):
     df_all: Dict[str, int] = {}
     for mf in glob.glob(os.path.join(cfg.memory_dir, "*.md")):
         base = os.path.basename(mf)
-        if base in skip or base.startswith("_"):
+        if base in skip or base.startswith(cfg.private_file_prefix):
             continue
         name, desc, kw, body = read_fields(mf, cfg.retrieve_body_chars)
         if not (name or desc or kw or body):
@@ -143,27 +145,28 @@ def run(query: str, hook_mode: bool, cfg: Optional[MemoryConfig] = None) -> str:
     if hook_mode:
         if not by_path and (not kw or kw[0][0] < threshold):
             return ""  # тишина — не шуметь на нерелевантных запросах
-        out = ["[memory:retrieve] Возможно релевантные уроки — прочитай нужные ДО действий "
-               "(полный список — CATALOG):"]
+        out = [msg(cfg, "retrieve.hook_header")]
         if by_path:
-            out.append("  • по пути файла в запросе (applies_to):")
-            out += [f"    - {fn}: {d}" for fn, d in list(by_path.items())[:top_n]]
+            out.append(msg(cfg, "retrieve.hook_section_path"))
+            out += [msg(cfg, "retrieve.hook_path_item", fn=fn, d=d)
+                    for fn, d in list(by_path.items())[:top_n]]
         if kw and kw[0][0] >= threshold:
-            out.append("  • по смыслу (keyword):")
-            out += [f"    - {b}: {d}" for _, b, d in kw[:top_n]]
+            out.append(msg(cfg, "retrieve.hook_section_keyword"))
+            out += [msg(cfg, "retrieve.hook_keyword_item", b=b, d=d)
+                    for _, b, d in kw[:top_n]]
         return "\n".join(out)
 
-    lines = [f"Запрос: {query}", ""]
+    lines = [msg(cfg, "retrieve.verbose_query_label", query=query), ""]
     if by_path:
-        lines.append("По пути файла (applies_to — высокая точность):")
+        lines.append(msg(cfg, "retrieve.verbose_section_path"))
         for fn, d in by_path.items():
-            lines.append(f"   * {fn}\n     {d[:140]}")
+            lines.append(msg(cfg, "retrieve.verbose_path_item", fn=fn, d=d[:140]))
         lines.append("")
-    lines.append(f"По смыслу (keyword+IDF), топ-{top_n}:")
+    lines.append(msg(cfg, "retrieve.verbose_section_keyword", top_n=top_n))
     if not kw:
-        lines.append("   (нет совпадений)")
+        lines.append(msg(cfg, "retrieve.verbose_no_matches"))
     for s, b, d in kw[:top_n]:
-        lines.append(f"{s:5} | {b}\n        {d[:140]}")
+        lines.append(msg(cfg, "retrieve.verbose_keyword_item", s=f"{s:5}", b=b, d=d[:140]))
     return "\n".join(lines)
 
 
@@ -181,7 +184,7 @@ def main() -> None:
 
     if not query.strip():
         if not hook_mode:
-            print('usage: python3 -m claude_memory.memory_retrieve "<запрос>"')
+            print(msg(get_config(), "retrieve.usage"))
         return
 
     out = run(query, hook_mode)

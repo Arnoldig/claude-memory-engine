@@ -20,21 +20,15 @@ from pathlib import Path
 from typing import Optional
 
 from .config import MemoryConfig, get_config
+from .messages import msg
 
 MARKER_PREFIX = "claude-subagent-model-"
 STRONGEST_MARKER_PREFIX = "claude-subagent-strongest-"
 
 
-def _reason(subagent_type: str) -> str:
-    return (
-        f"Запуск суб-агента (тип {subagent_type}) без указания `model` → он унаследует модель "
-        "главного потока (самую дорогую). Правило ярусов: объёмное чтение/поиск/механику "
-        "отдавай дешёвой модели, задачи с суждением — средней, деликатные делегируемые "
-        "проверки — верхней делегируемой; самую сильную модель оставляй на критический путь "
-        "и финальные решения. Перевыпусти вызов с осознанным `model:` — или повтори как есть, "
-        "если сильнейшая модель здесь правда нужна (повтор пройдёт). Напоминание разовое за "
-        "сессию. [subagent-model-guard]"
-    )
+def _reason(subagent_type: str, cfg: Optional[MemoryConfig] = None) -> str:
+    cfg = cfg or get_config()
+    return msg(cfg, "model_guard.no_model_reason", subagent_type=subagent_type)
 
 
 def _routine_call(tool_name: str, tool_input: object, cfg: MemoryConfig) -> Optional[tuple]:
@@ -64,16 +58,15 @@ def decide(tool_name: str, tool_input: object, cfg: Optional[MemoryConfig] = Non
     _subagent_type, model = call
     if model:
         return None  # явный выбор модели уважаем
-    return _reason(call[0])
+    return _reason(call[0], cfg)
 
 
-def _strongest_reason(subagent_type: str, model: str) -> str:
-    return (
-        f"Рутинный суб-агент (тип {subagent_type}) запущен на САМОЙ СИЛЬНОЙ модели "
-        f"(`{model}`) — это ярус главного потока, для делегируемого он почти всегда "
-        "перерасход. Если сильнейшая модель здесь правда нужна — повтори вызов как есть "
-        "(повтор пройдёт), иначе перевыпусти с ярусом по схеме. Напоминание разовое за "
-        "сессию. [subagent-model-guard]"
+def _strongest_reason(
+    subagent_type: str, model: str, cfg: Optional[MemoryConfig] = None
+) -> str:
+    cfg = cfg or get_config()
+    return msg(
+        cfg, "model_guard.strongest_model_reason", subagent_type=subagent_type, model=model
     )
 
 
@@ -95,7 +88,7 @@ def decide_strongest(
     ml = model.lower()
     if not any(str(s).lower() in ml for s in subs if s):
         return None
-    return _strongest_reason(subagent_type, model)
+    return _strongest_reason(subagent_type, model, cfg)
 
 
 def _marker_path_for(prefix: str, session_id: str, tmpdir: str) -> Path:

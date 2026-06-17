@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import MemoryConfig, get_config
+from .messages import msg
 
 
 def decide(commit_ts: int, feedback_ts: float, now_ts: float, age_limit: int) -> bool:
@@ -62,11 +63,7 @@ def _git(cwd: str, fmt: str, as_int: bool = False):
 
 def reminder_message(cfg: MemoryConfig) -> str:
     """Generic-текст напоминания (без проектной методологии — её добавляет проектный хук)."""
-    return (
-        "Завершение заблокировано: есть свежий коммит, но урок/заметка в память после него "
-        "не записаны. Зафиксируй вывод сессии файлом-уроком (или отметь «рутина — урока нет» "
-        "в журнале уроков), затем заверши — это снимет блок. [stop-lessons]"
-    )
+    return msg(cfg, "stop_check.reminder_message")
 
 
 def should_remind(cfg: Optional[MemoryConfig], cwd: str, now_ts: float) -> Optional[str]:
@@ -102,7 +99,7 @@ def task_lesson_recorded(cfg: MemoryConfig, task_id: str) -> bool:
     mem = Path(cfg.memory_dir)
     for prefix in cfg.lesson_prefixes:
         candidates += glob.glob(str(mem / f"{prefix}_*.md"))
-    candidates += glob.glob(str(mem / "archive" / "*.md"))
+    candidates += glob.glob(str(mem / cfg.archive_dir_name / "*.md"))
     for path in candidates:
         try:
             if needle in Path(path).read_text(encoding="utf-8"):
@@ -122,8 +119,4 @@ def closure_reminder(cfg: Optional[MemoryConfig], cwd: str) -> Optional[str]:
         return None
     if task_lesson_recorded(cfg, task_id):
         return None
-    return (
-        f"Завершение заблокировано: коммит закрывает задачу #{task_id}, но урока про неё "
-        "в памяти нет. Запиши вывод по задаче в файл-урок (со ссылкой на #" + task_id + ") "
-        "или карточку в архив прецедентов, затем заверши. [task-close-gate]"
-    )
+    return msg(cfg, "stop_check.closure_reminder", task_id=task_id)

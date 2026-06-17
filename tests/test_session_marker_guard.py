@@ -19,12 +19,12 @@ def test_ok_short_single_line(cfg) -> None:
 def test_too_long_blocked(cfg) -> None:
     long = "<!-- 2026-06-17 " + "x" * 250 + " -->"
     r = SG.violation_reason("Write", _input(long), cfg)
-    assert r and "знаков" in r
+    assert r and "characters" in r and "270" in r  # английский дефолт + длина
 
 
 def test_multiline_marker_blocked(cfg) -> None:
     r = SG.violation_reason("Write", _input("<!-- 2026-06-17 начало\nпродолжение -->"), cfg)
-    assert r and "несколько строк" in r
+    assert r and "spans multiple lines" in r
 
 
 def test_wrong_file_ignored(cfg) -> None:

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from .config import MemoryConfig, get_config
+from .messages import msg
 # Единый источник истины формата маркера — регэксп архиватора (колонка 0 умышленно,
 # без lstrip: отсекает inline-примеры формата в теле урока).
 from .memory_archive import SESSION_MARKER_RE as MARKER_START_RE
@@ -69,11 +70,10 @@ def violation_reason(
     if not bad:
         return None
     worst, n_lines = max(bad, key=lambda x: len(x[0]))
-    lines_part = "развёрнут на несколько строк" if n_lines > 1 else f"{len(worst)} знаков"
-    return (
-        f"Session-маркер нарушает формат файла: ОДНА строка ≤{limit} знаков "
-        f"(у тебя {lines_part}). Сократи маркер до сути одной строкой "
-        "(`<!-- YYYY-MM-DD <hash> #тег — суть -->`), а разбор сессии положи в "
-        "drafts/<session>.md или archive/ и сошлись на него. Повтор с исправленным "
-        "маркером пройдёт. [session-marker-guard]"
+    actual = msg(cfg, "marker.violation_multiline") if n_lines > 1 else len(worst)
+    return msg(
+        cfg,
+        "marker.violation_reason",
+        limit=limit,
+        actual_length_or_multiline=actual,
     )

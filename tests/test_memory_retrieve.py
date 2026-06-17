@@ -42,4 +42,4 @@ def test_run_hook_includes_path_lessons(cfg) -> None:
 
 def test_run_verbose_no_match(cfg) -> None:
     out = MR.run("zzzznevermatch", hook_mode=False, cfg=cfg)
-    assert "нет совпадений" in out
+    assert "(no matches)" in out

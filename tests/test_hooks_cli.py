@@ -66,7 +66,7 @@ def test_bloat_check_core_over_budget(cfg, tmp_path) -> None:
     core.write_text("x" * (cfg.core_budget_bytes + 100), encoding="utf-8")
     event = {"tool_name": "Write", "tool_input": {"file_path": str(core)}}
     out = H.ev_bloat_check(event, cfg)
-    assert "бюджета" in out and cfg.core_file in out
+    assert "budget" in out and cfg.core_file in out  # англ. дефолт; ядро в символах
 
 
 def test_session_start_writes_catalog(cfg) -> None:

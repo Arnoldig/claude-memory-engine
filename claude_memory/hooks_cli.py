@@ -39,6 +39,7 @@ from . import (
 )
 from .applies_to import find_lessons_for_path, format_lines
 from .config import MemoryConfig, get_config
+from .messages import msg
 
 _APPLIES_MARKER = "claude-applies-gate-"  # маркер «урок по пути показан» (сессия+файл)
 
@@ -56,8 +57,26 @@ def _deny(reason: str) -> None:
 
 
 def _emit(text: str) -> None:
+    """Прямой stdout → контекст (UserPromptSubmit / SessionStart добавляют stdout в контекст)."""
     if text:
         print(text)
+    sys.exit(0)
+
+
+def _emit_post_context(text: str) -> None:
+    """PostToolUse: чтобы текст попал в контекст модели, нужен hookSpecificOutput.additionalContext
+    (голый stdout PostToolUse в контекст НЕ инжектится)."""
+    if text:
+        print(json.dumps({
+            "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}
+        }, ensure_ascii=False))
+    sys.exit(0)
+
+
+def _emit_system_message(text: str) -> None:
+    """PreCompact / прочее: системное сообщение пользователю/модели."""
+    if text:
+        print(json.dumps({"systemMessage": text}, ensure_ascii=False))
     sys.exit(0)
 
 
@@ -72,29 +91,34 @@ def ev_retrieve(event: dict, cfg: MemoryConfig) -> str:
 
 
 def ev_session_start(cfg: MemoryConfig) -> str:
-    """SessionStart: пересобрать CATALOG, освежить индекс прецедентов, вернуть пульс здоровья."""
+    """SessionStart: проектные ноты + CATALOG + индекс прецедентов + пульс + долг устаревания."""
     out_lines = []
+    # проектные операционные ноты (печатаются как есть; по умолчанию пусто)
+    out_lines.extend(n for n in cfg.session_start_notes if n)
     try:
         text, diag = catalog_generate.build_catalog(cfg.memory_dir, cfg)
         cat = Path(cfg.memory_dir) / cfg.catalog_file
         tmp = cat.with_name(cfg.catalog_file + ".tmp")
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, cat)
-        pulse = catalog_generate.format_health_pulse(diag, cfg)
+        # пульс с тем же троттлингом, что CLI --report (раз/день + при смене долга)
+        pulse = catalog_generate.throttle_pulse(
+            catalog_generate.format_health_pulse(diag, cfg), diag, cfg
+        )
         if pulse:
             out_lines.append(pulse)
     except OSError:
         pass
     # индекс прецедентов + шапка-предупреждение по каждому архиву
-    arc_dir = Path(cfg.memory_dir) / "archive"
+    arc_dir = Path(cfg.memory_dir) / cfg.archive_dir_name
     if arc_dir.is_dir():
         for arc in sorted(arc_dir.glob("precedents-*.md")):
             if arc.name.endswith("-INDEX.md"):
                 continue
             try:
                 raw = arc.read_text(encoding="utf-8")
-                arc.write_text(precedent_index.add_warning_header(raw), encoding="utf-8")
-                idx = precedent_index.render_index(precedent_index.parse_cards(raw, cfg), arc.name)
+                arc.write_text(precedent_index.add_warning_header(raw, cfg), encoding="utf-8")
+                idx = precedent_index.render_index(precedent_index.parse_cards(raw, cfg), arc.name, cfg)
                 idx_path = arc.with_name(arc.stem + "-INDEX.md")
                 idx_path.write_text(idx, encoding="utf-8")
             except OSError:
@@ -139,9 +163,14 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
         if c:
             return c
 
-    # 3) уроки по пути файла (applies_to) — разово на (сессию, файл), вне памяти/.claude
+    # 3) уроки по пути файла (applies_to) — разово на (сессию, файл), вне памяти/.claude.
+    # Worktree-aware: служебное .claude/ пропускаем, НО правки проектных файлов в
+    # .claude/worktrees/<wt>/ — НЕ служебные, страж по ним обязан срабатывать
+    # (ЧеКи работает из worktree; #memory-lib-cutover). Вне worktree проектные файлы
+    # и так не под .claude/ — не задеты.
     norm = file_path.replace("\\", "/")
-    if "/.claude/" not in norm and not in_memory:
+    in_claude_tooling = "/.claude/" in norm and "/.claude/worktrees/" not in norm
+    if not in_claude_tooling and not in_memory:
         # sha256 (НЕ встроенный hash()): hash() строк рандомизируется per-process
         # (PYTHONHASHSEED) → каждый запуск хука = свой процесс = другое имя маркера →
         # разовость «раз на файл за сессию» сломалась бы (как в memory_concurrency.marker_path).
@@ -156,10 +185,9 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
                 except OSError:
                     pass
                 return (
-                    "Уроки, привязанные к этому файлу (applies_to) — прочитай ДО первой "
-                    "правки (показывается один раз за сессию на файл):\n"
+                    msg(cfg, "applies_to.gate.header")
                     + format_lines(matches)
-                    + "\nПосле прочтения повтори правку — она пройдёт. [applies-to-gate]"
+                    + msg(cfg, "applies_to.gate.footer")
                 )
     return None
 
@@ -179,8 +207,32 @@ def ev_post_record(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str)
         return
 
 
+def _measure(path: Path, unit: str) -> int:
+    """Размер файла: символы (len текста) или байты (st_size). Для не-латиницы честнее
+    символы (важна длина контента в контексте, не байты на диске)."""
+    if unit == "chars":
+        try:
+            return len(path.read_text(encoding="utf-8"))
+        except OSError:
+            return 0
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _unit_word(cfg: MemoryConfig, unit: str) -> str:
+    return msg(cfg, "unit.chars" if unit == "chars" else "unit.bytes")
+
+
 def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date] = None) -> str:
-    """PostToolUse Write|Edit на файле памяти: авто-архив старого + предупреждение о размере."""
+    """PostToolUse Write|Edit на файле памяти: авто-архив старого + предупреждение о размере.
+
+    Ядро (core_file) меряется в core_size_unit (по умолч. символы) и предупреждается уже
+    при core_warn_ratio·бюджета. Уроки меряются в байтах, предупреждаются только для
+    size_warn_prefixes (без архива и size_exempt), с учётом size_override и счётчика
+    «живых» прецедентов (precedent_count_warn).
+    """
     tool_input = event.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         return ""
@@ -195,36 +247,53 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
         return ""
     if not p.is_file():
         return ""
+    name = p.name
+    in_archive = f"/{cfg.archive_dir_name}/" in file_path.replace("\\", "/")
+    # архивные файлы — это и есть архив: ни авто-архива, ни размер-warning (как у ЧеКи)
+    if in_archive and cfg.size_warn_skip_archive:
+        return ""
     warnings = []
     # авто-архив маркеров в транзитном session-файле
-    if p.name == cfg.session_lessons_file:
+    if name == cfg.session_lessons_file:
         try:
-            memory_archive.archive_old_session_markers(p, today=today, threshold_days=cfg.marker_archive_days)
+            memory_archive.archive_old_session_markers(
+                p, today=today, threshold_days=cfg.marker_archive_days, cfg=cfg
+            )
         except OSError:
             pass
-    # авто-архив прецедентов в любом feedback-файле
-    if p.name.startswith(cfg.lesson_prefixes[0]):
+    # авто-архив прецедентов в feedback-файле (первый префикс уроков)
+    if cfg.lesson_prefixes and name.startswith(cfg.lesson_prefixes[0]):
         try:
             memory_archive.archive_old_precedents(
                 p, today=today, threshold_days=cfg.precedent_archive_days, cfg=cfg
             )
         except OSError:
             pass
-    # предупреждение о размере: ядро vs обычный урок
-    try:
+    # — горячее ядро: символы/байты + ранний нудж на core_warn_ratio —
+    if name == cfg.core_file:
+        size = _measure(p, cfg.core_size_unit)
+        budget = cfg.core_budget_bytes
+        unit = _unit_word(cfg, cfg.core_size_unit)
+        pct = round(size / budget * 100) if budget else 0
+        if size > budget:
+            warnings.append(msg(cfg, "bloat.core_over", core_file=name, size=size, unit=unit, pct=pct, budget=budget))
+        elif cfg.core_warn_ratio and size >= cfg.core_warn_ratio * budget:
+            warnings.append(msg(cfg, "bloat.core_warn", core_file=name, size=size, unit=unit, pct=pct, budget=budget))
+        return "\n".join(warnings)
+    # — обычный урок: байты, только для size_warn_prefixes, не exempt —
+    prefixes = cfg.size_warn_prefixes if cfg.size_warn_prefixes is not None else cfg.lesson_prefixes
+    if any(name.startswith(pref) for pref in prefixes) and name not in cfg.size_exempt:
         size = p.stat().st_size
-    except OSError:
-        return ""
-    if p.name == cfg.core_file and size > cfg.core_budget_bytes:
-        warnings.append(
-            f"[память] {cfg.core_file} = {size}б > бюджета {cfg.core_budget_bytes}б — "
-            "ужми горячее ядро (вынеси детали в обычные уроки)."
-        )
-    elif p.name != cfg.core_file and size > cfg.feedback_warn_bytes:
-        warnings.append(
-            f"[память] {p.name} = {size}б > {cfg.feedback_warn_bytes}б — "
-            "крупный урок, рассмотри разбиение."
-        )
+        limit = cfg.size_override.get(name, cfg.feedback_warn_bytes)
+        if size > limit:
+            warnings.append(msg(cfg, "bloat.lesson_over", filename=name, size=size, unit=_unit_word(cfg, "bytes"), limit=limit))
+        if cfg.precedent_count_warn:
+            try:
+                cnt = memory_archive.count_real_precedents(p.read_text(encoding="utf-8"), cfg=cfg)
+            except OSError:
+                cnt = 0
+            if cnt >= cfg.precedent_count_warn:
+                warnings.append(msg(cfg, "bloat.precedent_count", filename=name, count=cnt, days=cfg.precedent_archive_days))
     return "\n".join(warnings)
 
 
@@ -243,17 +312,17 @@ def ev_agent_log(event: dict, cfg: MemoryConfig, session_id: str, now_iso: str) 
 
 
 def ev_pre_compact(cfg: MemoryConfig) -> str:
-    """PreCompact: напомнить про бюджет горячего ядра перед сжатием контекста."""
+    """PreCompact: напомнить про бюджет горячего ядра перед сжатием (ранний нудж на ratio)."""
     core = Path(cfg.memory_dir) / cfg.core_file
-    try:
-        size = core.stat().st_size
-    except OSError:
+    if not core.is_file():
         return ""
-    if size > cfg.core_budget_bytes:
-        return (
-            f"[память] перед компактом: {cfg.core_file} {size}б > {cfg.core_budget_bytes}б — "
-            "хороший момент ужать ядро."
-        )
+    size = _measure(core, cfg.core_size_unit)
+    budget = cfg.core_budget_bytes
+    threshold = budget * (cfg.core_warn_ratio if cfg.core_warn_ratio else 1.0)
+    if size >= threshold:
+        unit = _unit_word(cfg, cfg.core_size_unit)
+        pct = round(size / budget * 100) if budget else 0
+        return msg(cfg, "compact.core_over", core_file=cfg.core_file, size=size, unit=unit, pct=pct, budget=budget)
     return ""
 
 
@@ -294,15 +363,16 @@ def main() -> None:
         elif event_name == "post-record":
             ev_post_record(data, cfg, session_id, tmpdir)
         elif event_name == "bloat-check":
-            _emit(ev_bloat_check(data, cfg))
+            _emit_post_context(ev_bloat_check(data, cfg))
         elif event_name == "agent-guard":
             r = ev_agent_guard(data, cfg, session_id, tmpdir)
             if r:
                 _deny(r)
         elif event_name == "agent-log":
-            ev_agent_log(data, cfg, session_id, datetime.datetime.now().isoformat() + "Z")
+            now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ev_agent_log(data, cfg, session_id, now_iso)
         elif event_name == "pre-compact":
-            _emit(ev_pre_compact(cfg))
+            _emit_system_message(ev_pre_compact(cfg))
         elif event_name == "session-end":
             ev_session_end(cfg)
         elif event_name == "stop-check":

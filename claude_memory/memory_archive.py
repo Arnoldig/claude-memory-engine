@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from .config import MemoryConfig, get_config
+from .messages import msg
 
 ARCHIVE_DIR_NAME = "archive"
 # Маркер сессии: строка-комментарий, начинающаяся в колонке 0 с `<!-- YYYY-MM-DD`.
@@ -52,8 +53,8 @@ def _quarter(month: int) -> int:
     return (month - 1) // 3 + 1
 
 
-def _archive_path(memory_root: Path, year: int, quarter: int) -> Path:
-    return memory_root / ARCHIVE_DIR_NAME / f"precedents-{year}-Q{quarter}.md"
+def _archive_path(memory_root: Path, year: int, quarter: int, cfg: MemoryConfig) -> Path:
+    return memory_root / cfg.archive_dir_name / f"precedents-{year}-Q{quarter}.md"
 
 
 def archive_old_precedents(
@@ -100,14 +101,20 @@ def archive_old_precedents(
             new_paragraphs.append(para)
             continue
         quarter = _quarter(d.month)
-        qfile = _archive_path(memory_root, d.year, quarter)
-        qrelative = f"{ARCHIVE_DIR_NAME}/{qfile.name}"
+        qfile = _archive_path(memory_root, d.year, quarter, cfg)
+        qrelative = f"{cfg.archive_dir_name}/{qfile.name}"
         archive_appends.setdefault(qfile, (d.year, quarter, []))[2].append(
             (date_str, fname, para)
         )
         new_paragraphs.append(
-            f"**{cfg.precedent_keyword} {date_str}:** {cfg.precedent_pointer} "
-            f"[{qrelative}]({qrelative})."
+            msg(
+                cfg,
+                "archive.precedent_pointer_line",
+                keyword=cfg.precedent_keyword,
+                date_str=date_str,
+                pointer=cfg.precedent_pointer,
+                qrelative=qrelative,
+            )
         )
 
     archived_count = sum(len(v[2]) for v in archive_appends.values())
@@ -121,12 +128,26 @@ def archive_old_precedents(
         qfile.parent.mkdir(parents=True, exist_ok=True)
         if not qfile.exists():
             qfile.write_text(
-                f"# {cfg.precedent_keyword} — {year} Q{quarter}\n\n",
+                msg(
+                    cfg,
+                    "archive.precedent_file_header",
+                    keyword=cfg.precedent_keyword,
+                    year=year,
+                    quarter=quarter,
+                ),
                 encoding="utf-8",
             )
         with qfile.open("a", encoding="utf-8") as f:
             for date_str, source_name, block_text in blocks:
-                f.write(f"\n## {date_str} ({source_name})\n\n{block_text}\n")
+                f.write(
+                    msg(
+                        cfg,
+                        "archive.precedent_block_header",
+                        date_str=date_str,
+                        source_name=source_name,
+                        block_text=block_text,
+                    )
+                )
 
     new_content = "\n\n".join(new_paragraphs)
     tmp_path = feedback_path.with_name(feedback_path.name + ".tmp")
@@ -144,14 +165,15 @@ def archive_old_precedents(
     )
 
 
-def _session_archive_path(memory_root: Path, year: int, quarter: int) -> Path:
-    return memory_root / ARCHIVE_DIR_NAME / f"session-end-markers-{year}-Q{quarter}.md"
+def _session_archive_path(memory_root: Path, year: int, quarter: int, cfg: MemoryConfig) -> Path:
+    return memory_root / cfg.archive_dir_name / f"session-end-markers-{year}-Q{quarter}.md"
 
 
 def archive_old_session_markers(
     feedback_path: Path,
     today: Optional[datetime.date] = None,
     threshold_days: int = 7,
+    cfg: Optional[MemoryConfig] = None,
 ) -> ArchiveResult:
     """Архивирует HTML-маркеры `<!-- YYYY-MM-DD … -->` старше threshold_days.
 
@@ -159,6 +181,7 @@ def archive_old_session_markers(
     строки до очередного такого `<!--`. Переносятся ПОЛНОСТЬЮ (без pointer-замены:
     источник транзитный, архив — полный лог). Атомарно. Нет кандидатов — no-op.
     """
+    cfg = cfg or get_config()
     if today is None:
         today = datetime.date.today()
     threshold = today - datetime.timedelta(days=threshold_days)
@@ -202,7 +225,7 @@ def archive_old_session_markers(
             kept_blocks.append(b)
             continue
         quarter = _quarter(d.month)
-        qfile = _session_archive_path(memory_root, d.year, quarter)
+        qfile = _session_archive_path(memory_root, d.year, quarter, cfg)
         archive_appends.setdefault(qfile, (d.year, quarter, []))[2].append(
             text.rstrip() + "\n"
         )
@@ -215,12 +238,22 @@ def archive_old_session_markers(
         qfile.parent.mkdir(parents=True, exist_ok=True)
         if not qfile.exists():
             qfile.write_text(
-                f"# Session-end markers — {year} Q{quarter}\n\n",
+                msg(
+                    cfg,
+                    "archive.session_markers_file_header",
+                    year=year,
+                    quarter=quarter,
+                ),
                 encoding="utf-8",
             )
         with qfile.open("a", encoding="utf-8") as f:
             f.write(
-                f"\n## {today.isoformat()} — auto-archive of markers >{threshold_days}d\n\n"
+                msg(
+                    cfg,
+                    "archive.session_markers_section_header",
+                    today=today.isoformat(),
+                    threshold_days=threshold_days,
+                )
             )
             for t in texts:
                 f.write(t)

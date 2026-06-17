@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from .messages import msg
+
 # (событие, matcher, имя-события-для-cme_hook, timeout). Один источник истины набора хуков.
 HOOK_REGISTRATIONS: List[Tuple[str, str, str, int]] = [
     ("UserPromptSubmit", "", "retrieve", 10),
@@ -99,10 +101,10 @@ def main() -> None:
     import sys
 
     if len(sys.argv) < 3:
-        print("usage: python3 -m claude_memory.installer <settings.json> <abs/cme_hook.sh>")
+        print(msg(None, "installer.usage"))
         sys.exit(1)
     added = install_into_settings(sys.argv[1], sys.argv[2])
-    print(f"settings.json: добавлено хуков движка: {added} (повторные пропущены).")
+    print(msg(None, "installer.done", added=added))
 
 
 if __name__ == "__main__":

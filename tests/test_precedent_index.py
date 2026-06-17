@@ -41,6 +41,6 @@ def test_render_index(cfg) -> None:
 
 
 def test_add_warning_header_idempotent(cfg) -> None:
-    once = PI.add_warning_header("# Заголовок\n\nтекст\n")
-    assert "НЕ ЧИТАТЬ ЦЕЛИКОМ" in once
-    assert PI.add_warning_header(once) == once  # второй раз не дублирует
+    once = PI.add_warning_header("# Заголовок\n\nтекст\n", cfg)
+    assert "DO NOT READ IN FULL" in once  # английский дефолт сообщения
+    assert PI.add_warning_header(once, cfg) == once  # второй раз не дублирует

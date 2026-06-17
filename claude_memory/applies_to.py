@@ -61,29 +61,35 @@ def _applies_globs(fm: str) -> List[str]:
 
 
 def _candidates(target: str, project_root: str) -> set:
-    """Пути-кандидаты для матчинга глоб: rel-к-корню + исходный аргумент."""
+    """Пути-кандидаты для матчинга глоб: исходный аргумент + rel-к-корню-проекта +
+    rel-к-git-toplevel.
+
+    Оба rel считаем ВСЕГДА и добавляем оба (а не «или»): в worktree-сессии путь лежит
+    под главным project_root (rel получится `.claude/worktrees/<wt>/app/x.py` — НЕ
+    матчит глоб `app/*`), но git-toplevel = корень worktree → rel `app/x.py` матчит.
+    Так applies_to работает одинаково и в worktree, и вне его (#memory-lib-cutover).
+    """
     abspath = os.path.abspath(target)
-    rel: Optional[str] = None
+    cands = {target, target.lstrip("./")}
     # 1) относительно корня проекта из конфига
     try:
         root_abs = os.path.abspath(project_root)
         if root_abs and abspath.startswith(root_abs + os.sep):
-            rel = os.path.relpath(abspath, root_abs)
+            cands.add(os.path.relpath(abspath, root_abs))
     except (OSError, ValueError):
-        rel = None
-    # 2) запасной вариант — git-toplevel (worktree)
-    if rel is None:
-        search_dir = abspath if os.path.isdir(abspath) else os.path.dirname(abspath)
-        try:
-            top = subprocess.check_output(
-                ["git", "-C", search_dir, "rev-parse", "--show-toplevel"],
-                stderr=subprocess.DEVNULL, text=True,
-            ).strip()
-            if top and abspath.startswith(top):
-                rel = os.path.relpath(abspath, top)
-        except (OSError, subprocess.SubprocessError):
-            rel = None
-    return {c for c in (rel, target, target.lstrip("./")) if c}
+        pass
+    # 2) относительно git-toplevel (в worktree это корень worktree → совпадает с глобами)
+    search_dir = abspath if os.path.isdir(abspath) else os.path.dirname(abspath)
+    try:
+        top = subprocess.check_output(
+            ["git", "-C", search_dir, "rev-parse", "--show-toplevel"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        if top and abspath.startswith(top + os.sep):
+            cands.add(os.path.relpath(abspath, top))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return {c for c in cands if c}
 
 
 def find_lessons_for_path(

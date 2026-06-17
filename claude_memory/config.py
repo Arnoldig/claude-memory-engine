@@ -65,9 +65,25 @@ class MemoryConfig:
     catalog_preamble: str = "# Lessons Catalog (read on demand)"
     desc_max: int = 150                   # обрезка описания в строке указателя
     oversize_bytes: int = 9000            # урок крупнее — кандидат на разбиение (инфо, не ошибка)
+    # Маркеры авто-блока CATALOG. Конфигурируемы: проект со своими маркерами (или с
+    # другим языком в шапке) задаёт их тут — первая пересборка узнаёт существующий файл
+    # (иначе шапка не распознается и осиротеет). Дефолт — нейтральный английский.
+    catalog_auto_start: str = (
+        "<!-- AUTO-INDEX:START — managed by catalog_generate; edits between markers are overwritten -->"
+    )
+    catalog_auto_end: str = "<!-- AUTO-INDEX:END -->"
+    # Префикс «приватных» файлов (исключаются из указателя/ретривера). Дефолт «_».
+    private_file_prefix: str = "_"
+    # Пульс здоровья на SessionStart: троттлинг (раз/день + при смене долга). False —
+    # показывать каждый старт.
+    health_pulse_throttle: bool = True
 
     # — ретривер (memory_retrieve) —
     watched_dirs: Tuple[str, ...] = ("app", "tests", "src", "lib", "scripts", "docs")
+    # Расширения файлов, распознаваемые как «путь» в тексте запроса (для applies_to).
+    retrieve_extensions: Tuple[str, ...] = (
+        "py", "html", "js", "ts", "css", "sh", "yaml", "yml", "json", "md", "rs", "go", "java", "rb",
+    )
     retrieve_top_n: int = 6
     retrieve_threshold: float = 6.0       # порог тишины в режиме хука
     retrieve_stem: int = 5                # длина префикса-стема
@@ -85,11 +101,26 @@ class MemoryConfig:
     # — страж формата маркеров (session_marker_guard) —
     marker_limit: int = 200               # макс. длина однострочного session-маркера
 
-    # — пороги обслуживания —
-    core_budget_bytes: int = 15000        # бюджет горячего ядра
-    feedback_warn_bytes: int = 4000       # предупреждение о крупном уроке
+    # — пороги обслуживания (предупреждения о размере файлов памяти) —
+    core_budget_bytes: int = 15000        # бюджет горячего ядра (единица — core_size_unit)
+    # Единица измерения ГОРЯЧЕГО ЯДРА: "chars" (честно для не-латиницы — ядро всегда в
+    # контексте, важна длина контента, не байты на диске) или "bytes". Уроки/oversize
+    # меряются в байтах всегда. Дефолт — chars.
+    core_size_unit: str = "chars"
+    # Ранний нудж ядра: предупредить уже при core_warn_ratio·бюджета (а не только сверх
+    # 100%). None — выключить ранний нудж (только превышение бюджета).
+    core_warn_ratio: Optional[float] = 0.8
+    feedback_warn_bytes: int = 4000       # предупреждение о крупном уроке (байты)
+    # Какие префиксы уроков получают размер-warning. None → все lesson_prefixes. Проект
+    # может сузить (напр. только "feedback").
+    size_warn_prefixes: Optional[Tuple[str, ...]] = None
+    size_warn_skip_archive: bool = True   # не предупреждать о размере файлов в archive/
+    size_exempt: Tuple[str, ...] = ()     # имена файлов БЕЗ размер-warning (реестры/индексы)
+    size_override: dict = field(default_factory=dict)  # имя файла → свой лимит (байты)
+    precedent_count_warn: int = 3         # warning при ≥N живых блоках «Прецедент» (0 — выкл)
     precedent_archive_days: int = 30      # прецеденты старше → в архив
     marker_archive_days: int = 7          # session-маркеры старше → в архив
+    archive_dir_name: str = "archive"     # подкаталог архива внутри memory_dir
 
     # — авто-архив прецедентов (memory_archive) —
     # Ключевое слово карточки-прецедента и фраза-указатель «перенесён». Дефолты
@@ -114,6 +145,14 @@ class MemoryConfig:
     # (id — число ИЛИ слаг: `#58`, `#memory-lib-cutover`). Группа 1 = номер задачи.
     task_close_pattern: str = r"(?i)\b(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
 
+    # — проектные строки-напоминания на SessionStart (печатаются в контекст как есть) —
+    # Дефолт пуст; проект задаёт операционные ноты (напр. как логиниться в dev).
+    session_start_notes: Tuple[str, ...] = ()
+
+    # — i18n: переопределения операторских сообщений (ключ → шаблон), поверх англ.
+    # дефолтов в claude_memory.messages.DEFAULT_MESSAGES. См. messages.msg().
+    messages: dict = field(default_factory=dict)
+
     def topic_titles(self) -> dict:
         return dict(self.topic_order)
 
@@ -123,7 +162,8 @@ class MemoryConfig:
 # Поля, чьи списки-кортежи приходят из JSON как list → нормализуем в tuple.
 _TUPLE_FIELDS = {
     "lesson_prefixes", "watched_dirs", "stopwords", "routine_subagent_types",
-    "staleness_skip_dirs",
+    "staleness_skip_dirs", "retrieve_extensions", "size_warn_prefixes",
+    "size_exempt", "session_start_notes",
 }
 
 

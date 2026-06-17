@@ -21,6 +21,7 @@ from typing import List, Optional, Tuple
 
 from .applies_to import _applies_globs, _frontmatter
 from .config import MemoryConfig, get_config
+from .messages import msg
 
 _REVERIFY_RE = re.compile(r"^[ \t]*reverify_after:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
 _DESC_RE = re.compile(r"^description:\s*(.*)$", re.MULTILINE)
@@ -100,19 +101,25 @@ def write_pending(
                 pass
         return False
     lines = [
-        "# Память — нужна повторная проверка (pre-verify)",
+        msg(cfg, "staleness.pending_file.header"),
         "",
-        f"Сгенерировано {today.isoformat()} на SessionEnd. Сверь с живым кодом/конфигом ДО применения.",
+        msg(cfg, "staleness.pending_file.preamble", date=today.isoformat()),
         "",
     ]
     if stale:
-        lines.append("## Устаревшие правила (reverify_after < сегодня)")
-        lines += [f"- **{name}** (reverify_after {d}) — {desc}" for d, name, desc in stale]
+        lines.append(msg(cfg, "staleness.pending_file.stale_section_header"))
+        lines += [
+            msg(cfg, "staleness.pending_file.stale_item", name=name, d=d, desc=desc)
+            for d, name, desc in stale
+        ]
         lines.append("")
     if broken:
-        lines.append("## Протухшие applies_to-привязки (путь не найден — файл переехал/переименован?)")
-        lines += [f"- **{name}**: {', '.join(dead)}" for name, dead in broken]
-        lines.append("Исправь glob во frontmatter урока на актуальный путь (или убери привязку).")
+        lines.append(msg(cfg, "staleness.pending_file.broken_section_header"))
+        lines += [
+            msg(cfg, "staleness.pending_file.broken_item", name=name, dead=", ".join(dead))
+            for name, dead in broken
+        ]
+        lines.append(msg(cfg, "staleness.pending_file.broken_hint"))
         lines.append("")
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return True

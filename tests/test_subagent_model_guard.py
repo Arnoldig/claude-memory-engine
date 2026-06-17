@@ -22,7 +22,7 @@ def test_non_routine_type_ignored(cfg) -> None:
 
 def test_strongest_model_for_routine_nudges(cfg) -> None:
     r = G.decide_strongest("Agent", {"subagent_type": "general-purpose", "model": "claude-fable-5"}, cfg)
-    assert r and "СИЛЬНОЙ" in r
+    assert r and "STRONGEST" in r
     # обычная модель — без нуджа
     assert G.decide_strongest("Agent", {"subagent_type": "general-purpose", "model": "sonnet"}, cfg) is None
 

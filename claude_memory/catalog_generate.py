@@ -21,10 +21,15 @@ from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from .config import MemoryConfig, get_config
+from .messages import msg
 
-# Маркеры авто-блока. Всё ВНЕ их (преамбула сверху, хвост снизу) — рукописное.
+# Маркеры авто-блока по умолчанию (всё ВНЕ их — рукописное). Реальные значения берутся
+# из cfg.catalog_auto_start/end (конфигурируемы под язык/конвенцию проекта); эти
+# константы — дефолты конфига и опорные значения для тестов.
 AUTO_START = "<!-- AUTO-INDEX:START — managed by catalog_generate; edits between markers are overwritten -->"
 AUTO_END = "<!-- AUTO-INDEX:END -->"
+# Имя файла-маркера троттлинга пульса здоровья (внутренний, в memory_dir).
+HEALTH_MARKER_NAME = "_catalog_health_marker"
 
 # Раздел для уроков без распознанной темы — всегда последним (сигнал «припиши topic:»).
 NO_TOPIC_KEY = "_none"
@@ -83,7 +88,7 @@ def _lesson_paths(memory_dir: str, cfg: MemoryConfig) -> List[Tuple[str, str]]:
     out: List[Tuple[str, str]] = []
     for path in sorted(glob.glob(os.path.join(memory_dir, "*.md"))):
         base = os.path.basename(path)
-        if base in skip or base.startswith("_"):
+        if base in skip or base.startswith(cfg.private_file_prefix):
             continue
         out.append((path, base))
     return out
@@ -219,11 +224,16 @@ def run_diagnostics(
     }
 
 
-def _split_preamble_footer(existing: str) -> Tuple[str, str]:
-    """Делит существующий указатель на рукописную преамбулу (до маркера) и хвост (после)."""
-    if AUTO_START in existing and AUTO_END in existing:
-        pre = existing.split(AUTO_START, 1)[0].rstrip()
-        post = existing.split(AUTO_END, 1)[1].lstrip("\n")
+def _split_preamble_footer(existing: str, cfg: MemoryConfig) -> Tuple[str, str]:
+    """Делит существующий указатель на рукописную преамбулу (до маркера) и хвост (после).
+
+    Маркеры берём из cfg (проект может задать свои/локализованные) — так первая
+    пересборка узнаёт существующий файл с уже стоящими маркерами и не плодит дубль.
+    """
+    start, end = cfg.catalog_auto_start, cfg.catalog_auto_end
+    if start in existing and end in existing:
+        pre = existing.split(start, 1)[0].rstrip()
+        post = existing.split(end, 1)[1].lstrip("\n")
         return pre, post
     head = existing.split("\n### ", 1)[0].rstrip() if existing else ""
     return head, ""
@@ -249,17 +259,14 @@ def build_catalog(
     existing = ""
     if os.path.exists(catalog_path):
         existing = Path(catalog_path).read_text(encoding="utf-8")
-    preamble, footer = _split_preamble_footer(existing)
+    preamble, footer = _split_preamble_footer(existing, cfg)
     if not preamble:
         preamble = cfg.catalog_preamble
 
-    note = (
-        f"<!-- Индекс ниже собран автоматически catalog_generate "
-        f"(обновлён {today.isoformat()}, {len(lessons)} уроков). "
-        f"Правки внутри маркеров будут затёрты — меняйте `topic:`/`description:` "
-        f"во frontmatter урока. -->"
+    note = msg(cfg, "catalog.auto_index_note", today=today.isoformat(), count=len(lessons))
+    body = "\n".join(
+        [preamble, "", cfg.catalog_auto_start, note, "", index.rstrip(), "", cfg.catalog_auto_end]
     )
-    body = "\n".join([preamble, "", AUTO_START, note, "", index.rstrip(), "", AUTO_END])
     if footer:
         body += "\n\n" + footer
     return body.rstrip() + "\n", diag
@@ -409,15 +416,64 @@ def format_health_pulse(diag: Dict[str, list], cfg: Optional[MemoryConfig] = Non
         return ""
     parts = []
     if nt:
-        parts.append(f"{nt} уроков без темы (⚠-раздел указателя)")
+        parts.append(msg(cfg, "health.no_topic", nt=nt))
     if bl:
-        parts.append(f"{bl} битых межуроковых ссылок")
+        parts.append(msg(cfg, "health.broken_links", bl=bl))
     if osz:
-        parts.append(f"{osz} крупных >{cfg.oversize_bytes // 1000}К")
-    return (
-        "[память: здоровье] " + "; ".join(parts)
-        + ". Детали: python3 -m claude_memory.catalog_generate 2>&1"
-    )
+        parts.append(msg(cfg, "health.oversize", osz=osz, oversize_kb=cfg.oversize_bytes // 1000))
+    return msg(cfg, "health.pulse_prefix") + "; ".join(parts) + msg(cfg, "health.pulse_suffix")
+
+
+def health_marker_path(cfg: MemoryConfig) -> str:
+    """Путь файла-маркера троттлинга пульса (внутренний `_*` файл в memory_dir)."""
+    return os.path.join(cfg.memory_dir, HEALTH_MARKER_NAME)
+
+
+def throttle_pulse(
+    pulse: str,
+    diag: Dict[str, list],
+    cfg: MemoryConfig,
+    today: Optional[datetime.date] = None,
+    marker: Optional[str] = None,
+) -> str:
+    """Троттлинг пульса: вернуть pulse к показу или '' (и записать маркер при показе).
+
+    Правило: не чаще раза в день; показать при смене «долга» (nt/bl) ИЛИ через 7 дней
+    при неизменном долге. cfg.health_pulse_throttle=False — отдать pulse как есть.
+    Вынесено сюда из main(--report), чтобы SessionStart-хук применял тот же троттлинг.
+    """
+    if not pulse:
+        return ""
+    if not cfg.health_pulse_throttle:
+        return pulse
+    if today is None:
+        today = datetime.date.today()
+    marker = marker or health_marker_path(cfg)
+    sig = f"nt{len(diag['no_topic'])}_bl{len(diag['broken_links'])}"
+    last_date = last_sig = ""
+    try:
+        last_date, last_sig = (
+            Path(marker).read_text(encoding="utf-8").strip().split("|", 1) + [""]
+        )[:2]
+    except OSError:
+        pass
+    if last_date == today.isoformat():
+        return ""
+    emit = (not last_date) or (sig != last_sig)
+    if not emit:
+        try:
+            emit = (today - datetime.date.fromisoformat(last_date)).days >= 7
+        except ValueError:
+            emit = True
+    if not emit:
+        return ""
+    try:
+        tmp = Path(marker).with_name(Path(marker).name + ".tmp")
+        tmp.write_text(f"{today.isoformat()}|{sig}", encoding="utf-8")
+        os.replace(tmp, Path(marker))
+    except OSError:
+        pass
+    return pulse
 
 
 def main() -> None:
@@ -432,34 +488,12 @@ def main() -> None:
         marker = (
             args[idx + 1]
             if idx + 1 < len(args)
-            else os.path.join(memory_dir, "_catalog_health_marker")
+            else health_marker_path(cfg)
         )
         diag = run_diagnostics(memory_dir, collect_lessons(memory_dir, cfg), cfg)
-        pulse = format_health_pulse(diag, cfg)
-        if not pulse:
-            return
-        sig = f"nt{len(diag['no_topic'])}_bl{len(diag['broken_links'])}"
-        today = datetime.date.today()
-        last_date = last_sig = ""
-        try:
-            last_date, last_sig = (
-                Path(marker).read_text(encoding="utf-8").strip().split("|", 1) + [""]
-            )[:2]
-        except OSError:
-            pass
-        if last_date == today.isoformat():
-            return
-        emit = (not last_date) or (sig != last_sig)
-        if not emit:
-            try:
-                emit = (today - datetime.date.fromisoformat(last_date)).days >= 7
-            except ValueError:
-                emit = True
-        if emit:
+        pulse = throttle_pulse(format_health_pulse(diag, cfg), diag, cfg, marker=marker)
+        if pulse:
             print(pulse)
-            tmp = Path(marker).with_name(Path(marker).name + ".tmp")
-            tmp.write_text(f"{today.isoformat()}|{sig}", encoding="utf-8")
-            os.replace(tmp, Path(marker))
         return
 
     write = "--write" in args
@@ -480,22 +514,22 @@ def main() -> None:
         tmp = cat_path.with_name(cfg.catalog_file + ".tmp")
         tmp.write_text(catalog_text, encoding="utf-8")
         os.replace(tmp, cat_path)
-        print(f"{cfg.catalog_file} записан ({diag['total'][0]} уроков).")
+        print(msg(cfg, "catalog.written", catalog_file=cfg.catalog_file, count=diag["total"][0]))
     else:
         print(catalog_text)
 
-    print("\n" + "=" * 60, file=sys.stderr)
-    print("ДИАГНОСТИКА УКАЗАТЕЛЯ:", file=sys.stderr)
-    print(f"  уроков всего: {diag['total'][0]}", file=sys.stderr)
-    print(f"  без темы (topic): {len(diag['no_topic'])}", file=sys.stderr)
+    print("\n" + msg(cfg, "diag.separator"), file=sys.stderr)
+    print(msg(cfg, "diag.header"), file=sys.stderr)
+    print(msg(cfg, "diag.total", count=diag["total"][0]), file=sys.stderr)
+    print(msg(cfg, "diag.no_topic_count", count=len(diag["no_topic"])), file=sys.stderr)
     for f in diag["no_topic"]:
-        print(f"      - {f}", file=sys.stderr)
-    print(f"  без description: {len(diag['no_description'])}", file=sys.stderr)
-    print(f"  без frontmatter: {len(diag['no_frontmatter'])}", file=sys.stderr)
-    print(f"  крупные (>{cfg.oversize_bytes}б): {len(diag['oversize'])}", file=sys.stderr)
-    print(f"  битые ссылки: {len(diag['broken_links'])}", file=sys.stderr)
+        print(msg(cfg, "diag.no_topic_item", f=f), file=sys.stderr)
+    print(msg(cfg, "diag.no_description", count=len(diag["no_description"])), file=sys.stderr)
+    print(msg(cfg, "diag.no_frontmatter", count=len(diag["no_frontmatter"])), file=sys.stderr)
+    print(msg(cfg, "diag.oversize_count", oversize_bytes=cfg.oversize_bytes, count=len(diag["oversize"])), file=sys.stderr)
+    print(msg(cfg, "diag.broken_links_count", count=len(diag["broken_links"])), file=sys.stderr)
     for src, tgt in diag["broken_links"]:
-        print(f"      - {src} → {tgt}", file=sys.stderr)
+        print(msg(cfg, "diag.broken_link_item", src=src, tgt=tgt), file=sys.stderr)
 
 
 if __name__ == "__main__":

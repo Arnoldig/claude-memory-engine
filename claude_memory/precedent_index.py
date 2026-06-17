@@ -21,18 +21,15 @@ from pathlib import Path
 from typing import List, NamedTuple, Optional
 
 from .config import MemoryConfig, get_config
+from .messages import msg
 
 CARD_HEAD_RE = re.compile(r"^## (.+)$", re.MULTILINE)
 DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
-_EXTRACT_CMD = "python3 -m claude_memory.precedent_index --extract <archive> <date|substring>"
-WARN_HEADER = (
-    "> ⚠ **НЕ ЧИТАТЬ ЦЕЛИКОМ** — файл растёт append-only (к концу квартала "
-    "сотни КБ ≈ десятки-сотни тысяч токенов, забьёт рабочую память).\n"
-    "> Навигация: индекс рядом — `*-INDEX.md` (дата · тема · порождённые уроки). "
-    "Одна карточка без чтения всего файла:\n"
-    f"> `{_EXTRACT_CMD}`.\n"
-)
+
+def _extract_cmd() -> str:
+    """Команда module-формы для извлечения одной карточки (передаётся в сообщения как параметр)."""
+    return "python3 -m claude_memory.precedent_index --extract <archive> <date|substring>"
 
 
 def _ref_re(cfg: MemoryConfig) -> "re.Pattern[str]":
@@ -73,14 +70,19 @@ def parse_cards(text: str, cfg: Optional[MemoryConfig] = None) -> List[Card]:
     return cards
 
 
-def render_index(cards: List[Card], archive_name: str) -> str:
+def render_index(cards: List[Card], archive_name: str, cfg: Optional[MemoryConfig] = None) -> str:
     """Компактный markdown-индекс: одна строка на карточку (дата · тема · уроки)."""
+    cfg = cfg or get_config()
     lines = [
-        f"# Индекс прецедентов — {archive_name}",
+        msg(cfg, "precedent.index_title", archive_name=archive_name),
         "",
-        f"Адресуемый указатель к [{archive_name}]({archive_name}) ({len(cards)} карточек). "
-        "Сам архив НЕ читать целиком — найди карточку здесь, достань одну командой "
-        f"`{_EXTRACT_CMD}`.",
+        msg(
+            cfg,
+            "precedent.index_preamble",
+            archive_name=archive_name,
+            card_count=len(cards),
+            extract_cmd=_extract_cmd(),
+        ),
         "",
     ]
     for c in cards:
@@ -113,9 +115,14 @@ def _index_path(archive_path: str) -> str:
     return str(p.with_name(p.stem + "-INDEX.md"))
 
 
-def add_warning_header(text: str) -> str:
+def add_warning_header(text: str, cfg: Optional[MemoryConfig] = None) -> str:
     """Вписывает предупреждение «не читать целиком» после заголовка-`#`. Идемпотентно."""
-    if "НЕ ЧИТАТЬ ЦЕЛИКОМ" in text:
+    cfg = cfg or get_config()
+    warn_header = msg(cfg, "precedent.warn_header", extract_cmd=_extract_cmd())
+    # Идемпотентность: первая непустая строка шапки не содержит плейсхолдеров — по её
+    # наличию надёжно распознаём уже вписанную шапку (на любом языке/override).
+    marker_line = next((ln for ln in warn_header.split("\n") if ln.strip()), "")
+    if marker_line and marker_line in text:
         return text  # уже есть
     lines = text.split("\n")
     insert_at = 0
@@ -125,17 +132,17 @@ def add_warning_header(text: str) -> str:
             break
     if insert_at < len(lines) and lines[insert_at].strip() == "":
         insert_at += 1
-    block = ["", WARN_HEADER.rstrip(), ""]
+    block = ["", warn_header.rstrip(), ""]
     return "\n".join(lines[:insert_at] + block + lines[insert_at:])
 
 
 def main() -> None:
     import sys
 
+    cfg = get_config()
     args = sys.argv[1:]
     if not args:
-        print("usage: python3 -m claude_memory.precedent_index --index <archive> [--write] | "
-              "--extract <archive> <query> | --add-header <archive>")
+        print(msg(cfg, "precedent.cli_usage"))
         return
 
     if "--extract" in args:
@@ -144,37 +151,37 @@ def main() -> None:
         query = args[i + 2] if i + 2 < len(args) else ""
         text = Path(archive).read_text(encoding="utf-8")
         card = extract_card(text, query)
-        print(card if card else f"(нет карточки по запросу: {query!r})")
+        print(card if card else msg(cfg, "precedent.extract_not_found", query=query))
         return
 
     if "--add-header" in args:
         i = args.index("--add-header")
         archive = args[i + 1]
         p = Path(archive)
-        new = add_warning_header(p.read_text(encoding="utf-8"))
+        new = add_warning_header(p.read_text(encoding="utf-8"), cfg)
         tmp = p.with_name(p.name + ".tmp")
         tmp.write_text(new, encoding="utf-8")
         os.replace(tmp, p)
-        print(f"Шапка-предупреждение вписана в {p.name} (идемпотентно).")
+        print(msg(cfg, "precedent.header_written", filename=p.name))
         return
 
     if "--index" in args:
         i = args.index("--index")
         archive = args[i + 1]
         text = Path(archive).read_text(encoding="utf-8")
-        cards = parse_cards(text)
-        idx = render_index(cards, Path(archive).name)
+        cards = parse_cards(text, cfg)
+        idx = render_index(cards, Path(archive).name, cfg)
         if "--write" in args:
             out = _index_path(archive)
             tmp = Path(out).with_name(Path(out).name + ".tmp")
             tmp.write_text(idx, encoding="utf-8")
             os.replace(tmp, Path(out))
-            print(f"Индекс записан: {Path(out).name} ({len(cards)} карточек).")
+            print(msg(cfg, "precedent.index_written", filename=Path(out).name, card_count=len(cards)))
         else:
             print(idx)
         return
 
-    print("неизвестный режим; см. usage без аргументов")
+    print(msg(cfg, "precedent.unknown_mode"))
 
 
 if __name__ == "__main__":
