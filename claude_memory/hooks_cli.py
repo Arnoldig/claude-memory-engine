@@ -263,8 +263,11 @@ def ev_session_end(cfg: MemoryConfig) -> None:
 
 
 def ev_stop(cfg: MemoryConfig, cwd: str, now_ts: float) -> Optional[str]:
-    """Stop: причина блокировки завершения (свежий коммит без записанного урока) или None."""
-    return stop_check.should_remind(cfg, cwd, now_ts)
+    """Stop: причина блокировки завершения или None.
+
+    Сначала точечный привратник закрытия задачи (коммит `Closes #N` без урока про
+    эту задачу), затем общий (свежий коммит без записанного позже урока)."""
+    return stop_check.closure_reminder(cfg, cwd) or stop_check.should_remind(cfg, cwd, now_ts)
 
 
 # ── Диспетчер ────────────────────────────────────────────────────────────────

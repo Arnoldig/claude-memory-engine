@@ -105,6 +105,12 @@ class MemoryConfig:
     stop_lessons_enabled: bool = True            # блокировать Stop, если есть свежий коммит без урока
     stop_commit_age_limit_seconds: int = 14400   # «свежий» коммит — моложе этого (4 часа)
 
+    # — привратник закрытия задачи (Stop): коммит-закрытие без записанного про задачу урока —
+    task_close_lesson_gate: bool = True
+    # Шаблон коммита-закрытия. По умолчанию — стандарт GitHub `Closes/Fixes #<id>`
+    # (id — число ИЛИ слаг: `#58`, `#memory-lib-cutover`). Группа 1 = номер задачи.
+    task_close_pattern: str = r"(?i)\b(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
+
     def topic_titles(self) -> dict:
         return dict(self.topic_order)
 

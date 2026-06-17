@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 from .config import MemoryConfig, get_config
@@ -34,14 +36,28 @@ def newest_lesson_mtime(cfg: MemoryConfig) -> float:
 
 def last_commit_ts(cwd: str) -> int:
     """Unix-время последнего git-коммита в cwd (0, если не git / нет коммитов / ошибка)."""
+    return _git(cwd, "%ct", as_int=True)
+
+
+def last_commit_msg(cwd: str) -> str:
+    """Тема последнего git-коммита в cwd ("" если не git / нет коммитов / ошибка)."""
+    return _git(cwd, "%s")
+
+
+def _git(cwd: str, fmt: str, as_int: bool = False):
     try:
         out = subprocess.check_output(
-            ["git", "-C", cwd, "log", "-1", "--format=%ct"],
+            ["git", "-C", cwd, "log", "-1", f"--format={fmt}"],
             stderr=subprocess.DEVNULL, text=True, timeout=5,
         ).strip()
-        return int(out) if out else 0
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return 0
+    except (OSError, subprocess.SubprocessError):
+        return 0 if as_int else ""
+    if as_int:
+        try:
+            return int(out) if out else 0
+        except ValueError:
+            return 0
+    return out
 
 
 def reminder_message(cfg: MemoryConfig) -> str:
@@ -63,3 +79,51 @@ def should_remind(cfg: Optional[MemoryConfig], cwd: str, now_ts: float) -> Optio
     if decide(commit_ts, feedback_ts, now_ts, cfg.stop_commit_age_limit_seconds):
         return reminder_message(cfg)
     return None
+
+
+# ── Привратник закрытия задачи (Closes #N без записанного урока про задачу) ──────
+
+def extract_closed_task(commit_msg: str, pattern: str) -> Optional[str]:
+    """Номер закрываемой задачи из коммита по шаблону (группа 1) или None."""
+    if not commit_msg:
+        return None
+    try:
+        m = re.search(pattern, commit_msg)
+    except re.error:
+        return None
+    return m.group(1) if m else None
+
+
+def task_lesson_recorded(cfg: MemoryConfig, task_id: str) -> bool:
+    """Есть ли уже запись про задачу `#task_id`: в файле-уроке (любой префикс) или в
+    архиве прецедентов. Ищем хэштег-форму `#<id>` — точно и без ложных совпадений."""
+    needle = f"#{task_id}"
+    candidates: list = []
+    mem = Path(cfg.memory_dir)
+    for prefix in cfg.lesson_prefixes:
+        candidates += glob.glob(str(mem / f"{prefix}_*.md"))
+    candidates += glob.glob(str(mem / "archive" / "*.md"))
+    for path in candidates:
+        try:
+            if needle in Path(path).read_text(encoding="utf-8"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def closure_reminder(cfg: Optional[MemoryConfig], cwd: str) -> Optional[str]:
+    """Блок-текст, если последний коммит — закрытие задачи, а урока про неё нет. Иначе None."""
+    cfg = cfg or get_config()
+    if not cfg.task_close_lesson_gate:
+        return None
+    task_id = extract_closed_task(last_commit_msg(cwd), cfg.task_close_pattern)
+    if not task_id:
+        return None
+    if task_lesson_recorded(cfg, task_id):
+        return None
+    return (
+        f"Завершение заблокировано: коммит закрывает задачу #{task_id}, но урока про неё "
+        "в памяти нет. Запиши вывод по задаче в файл-урок (со ссылкой на #" + task_id + ") "
+        "или карточку в архив прецедентов, затем заверши. [task-close-gate]"
+    )
