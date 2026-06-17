@@ -51,7 +51,7 @@ pip install pytest
 python3 -m pytest
 ```
 
-Все тесты — чистый stdlib, без сети/БД/Docker (92 кейса).
+Все тесты — чистый stdlib, без сети/БД/Docker (94 кейса).
 
 ## Roadmap (отложено)
 

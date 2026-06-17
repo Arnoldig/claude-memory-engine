@@ -33,6 +33,19 @@ def test_strongest_substr_is_configurable(cfg) -> None:
     assert G.decide_strongest("Agent", {"subagent_type": "Explore", "model": "fable"}, cfg2) is None
 
 
+def test_strongest_substr_accepts_list(cfg) -> None:
+    # список «премиальных» подстрок — совпадение по любой (гибко под N моделей/поколений)
+    cfg2 = replace(cfg, strongest_model_substr=["fable", "opus-5"])
+    assert G.decide_strongest("Agent", {"subagent_type": "Explore", "model": "claude-fable-5"}, cfg2) is not None
+    assert G.decide_strongest("Agent", {"subagent_type": "Explore", "model": "claude-opus-5-x"}, cfg2) is not None
+    assert G.decide_strongest("Agent", {"subagent_type": "Explore", "model": "sonnet"}, cfg2) is None
+
+
+def test_forgot_model_is_count_agnostic(cfg) -> None:
+    # «забыл model» не зависит от того, сколько моделей доступно — ловит любой пропуск
+    assert G.decide("Agent", {"subagent_type": "Explore"}, cfg) is not None
+
+
 def test_routine_types_configurable(cfg) -> None:
     cfg2 = replace(cfg, routine_subagent_types=("custom-agent",))
     assert G.decide("Agent", {"subagent_type": "custom-agent"}, cfg2) is not None

@@ -86,7 +86,14 @@ def decide_strongest(
     if call is None:
         return None
     subagent_type, model = call
-    if not model or cfg.strongest_model_substr not in model.lower():
+    if not model:
+        return None
+    # strongest_model_substr может быть строкой ИЛИ списком подстрок — гибко под смену
+    # поколений/разное число «премиальных» моделей (Fable/Opus/…). Совпадение по любой.
+    subs = cfg.strongest_model_substr
+    subs = [subs] if isinstance(subs, str) else list(subs)
+    ml = model.lower()
+    if not any(str(s).lower() in ml for s in subs if s):
         return None
     return _strongest_reason(subagent_type, model)
 

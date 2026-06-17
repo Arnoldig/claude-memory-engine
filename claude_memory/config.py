@@ -77,7 +77,10 @@ class MemoryConfig:
 
     # — страж модели суб-агентов (subagent_model_guard) —
     routine_subagent_types: Tuple[str, ...] = ("Explore", "general-purpose", "claude-code-guide")
-    strongest_model_substr: str = "fable"  # подстрока id самой сильной модели (обновлять при смене поколений)
+    # Подстрока(и) id «самой сильной» модели. Строка ИЛИ список строк — совпадение по
+    # любой (гибко под смену поколений и разное число премиальных моделей). Страж НЕ
+    # перечисляет доступные модели (хук этого не умеет) — это настраиваемый ярлык.
+    strongest_model_substr: object = "fable"
 
     # — страж формата маркеров (session_marker_guard) —
     marker_limit: int = 200               # макс. длина однострочного session-маркера
