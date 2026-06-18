@@ -72,6 +72,7 @@
   "precedent_count_warn": 3,
   "precedent_keyword": "Прецедент",
   "precedent_pointer": "перенесён в",
+  "default_subagent_type": "general-purpose",
   "strongest_model_substr": "opus",
   "known_model_substrs": [
     "haiku",
