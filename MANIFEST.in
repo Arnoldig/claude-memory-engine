@@ -1,0 +1,9 @@
+# Файлы, включаемые в архив-исходник (sdist) сверх пакета claude_memory/.
+# Колесо (wheel) содержит только пакет; sdist — ещё и эти вспомогательные файлы,
+# чтобы опубликованный архив был самодостаточным (вариант A install.sh, примеры, лицензия).
+include LICENSE
+include README.md
+include install.sh
+include MANIFEST.in
+recursive-include examples *.json
+recursive-include hooks *.sh

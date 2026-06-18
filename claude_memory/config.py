@@ -267,6 +267,22 @@ def reset_cache() -> None:
     _CACHED = None
 
 
+def render_cli(args) -> str:
+    """Текст для CLI печати конфига: `get <field>` → значение поля, иначе весь конфиг JSON.
+
+    Чистая (возвращает строку, не печатает) — переиспользуется и модульным CLI
+    (`python3 -m claude_memory.config`), и пакетным (`claude-memory config`)."""
+    cfg = get_config()
+    if len(args) >= 2 and args[0] == "get":
+        val = getattr(cfg, args[1], "")
+        if isinstance(val, (tuple, list)):
+            return "\n".join(str(x) for x in val)
+        return str(val)
+    from dataclasses import asdict
+
+    return json.dumps(asdict(cfg), ensure_ascii=False, indent=2)
+
+
 def main() -> None:
     """CLI: `python3 -m claude_memory.config [get <field>]` — печать конфига/поля.
 
@@ -274,19 +290,7 @@ def main() -> None:
     (напр. `MEM=$(python3 -m claude_memory.config get memory_dir)`)."""
     import sys
 
-    args = sys.argv[1:]
-    cfg = get_config()
-    if len(args) >= 2 and args[0] == "get":
-        val = getattr(cfg, args[1], "")
-        if isinstance(val, (tuple, list)):
-            print("\n".join(str(x) for x in val))
-        else:
-            print(val)
-        return
-    # без аргументов — весь конфиг как JSON (диагностика)
-    from dataclasses import asdict
-
-    print(json.dumps(asdict(cfg), ensure_ascii=False, indent=2))
+    print(render_cli(sys.argv[1:]))
 
 
 if __name__ == "__main__":
