@@ -71,7 +71,7 @@ def test_bloat_check_core_over_budget(cfg, tmp_path) -> None:
 
 def test_session_start_writes_catalog(cfg) -> None:
     write_lesson(cfg.memory_dir, "feedback_a.md", description="a", topic="workflow")
-    H.ev_session_start(cfg)
+    H.ev_session_start({}, cfg)
     catalog = Path(cfg.memory_dir) / cfg.catalog_file
     assert catalog.exists()
     assert "feedback_a.md" in catalog.read_text(encoding="utf-8")
@@ -94,7 +94,7 @@ def test_session_start_surfaces_stale(cfg) -> None:
     (Path(cfg.memory_dir) / "_stale_pending.md").write_text(
         "# Память — нужна повторная проверка\n\n- **feedback_x.md** просрочен\n", encoding="utf-8"
     )
-    out = H.ev_session_start(cfg)
+    out = H.ev_session_start({}, cfg)
     assert "повторная проверка" in out and "feedback_x.md" in out
 
 

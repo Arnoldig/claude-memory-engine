@@ -26,18 +26,22 @@ import re
 import sys
 from typing import Dict, List, Optional, Tuple
 
-from .applies_to import find_lessons_for_path
+from .applies_to import find_lessons_for_path, read_head
 from .config import MemoryConfig, get_config
 from .messages import msg
 
 
 def _path_re(cfg: MemoryConfig) -> "re.Pattern[str]":
-    """Регэксп path-подобных токенов в запросе («src/app.py», «docs/x.md»)."""
+    """Регэксп path-подобных токенов в запросе («src/app.py», «docs/x.md», «.claude/hooks/x.sh»).
+
+    Во второй ветви `[\\w./-]+` (с точкой) — чтобы ловить dotfile-пути с ведущей точкой
+    (`.claude/…`, `.github/…`) и точки внутри пути (`claude-memory.config.json`); иначе
+    высокоточный applies_to-канал ретривера слеп к путям движка памяти в `.claude/`."""
     dirs = "|".join(re.escape(d) for d in cfg.watched_dirs)
     exts = "|".join(re.escape(e) for e in cfg.retrieve_extensions)
     return re.compile(
         rf"(?:{dirs})/[\w./*-]+"
-        rf"|[\w/-]+\.(?:{exts})\b"
+        rf"|[\w./-]+\.(?:{exts})\b"
     )
 
 
@@ -57,10 +61,11 @@ def read_fields(path: str, body_chars: int = 1500):
     """(name, description, keywords, body) для индексации.
 
     Поля frontmatter читаем на ЛЮБОМ отступе (движок памяти кладёт их под `metadata:`).
-    Тело — текст после frontmatter, обрезанный до body_chars (топик-термины в начале)."""
+    Тело — текст после frontmatter, обрезанный до body_chars (топик-термины в начале).
+    Frontmatter читаем до закрывающей `---` без жёсткого окна (был лимит 4000 → длинный
+    frontmatter молча терялся), с предохранителем 64К на гигантские файлы."""
     try:
-        with open(path, encoding="utf-8") as f:
-            head = f.read(4000)
+        head = read_head(path)
     except OSError:
         return "", "", "", ""
     if not head.startswith("---"):

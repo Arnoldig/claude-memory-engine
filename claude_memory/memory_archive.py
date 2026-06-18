@@ -39,14 +39,23 @@ class ArchiveResult(NamedTuple):
 
 
 def _precedent_head_re(cfg: MemoryConfig) -> "re.Pattern[str]":
-    """Регэксп заголовка карточки-прецедента `**<keyword> … YYYY-MM-DD … :**`."""
+    """Регэксп заголовка карточки-прецедента `**<keyword> … YYYY-MM-DD … :**`.
+
+    Перед датой стоит ЖАДНЫЙ `[^:\\n]*` (не ленивый) → при нескольких датах в заголовке
+    (напр. дата в слаге `#audit-2026-06-11-F` + реальная дата карточки `2026-06-12`)
+    захватывается ПОСЛЕДНЯЯ — это дата самой карточки, а не служебная из слага. От неё
+    зависят квартал архива и порог архивации, поэтому важно брать верную."""
     kw = re.escape(cfg.precedent_keyword)
-    return re.compile(rf"^\*\*{kw}[^:\n]*?(\d{{4}}-\d{{2}}-\d{{2}})[^:\n]*?:\*\*", re.MULTILINE)
+    return re.compile(rf"^\*\*{kw}[^:\n]*(\d{{4}}-\d{{2}}-\d{{2}})[^:\n]*?:\*\*", re.MULTILINE)
 
 
 def _link_re(cfg: MemoryConfig) -> "re.Pattern[str]":
-    """Признак уже-перенесённой карточки (pointer-ссылка), чтобы не архивировать дважды."""
-    return re.compile(re.escape(cfg.precedent_pointer) + r" \[archive/precedents-")
+    """Признак уже-перенесённой карточки (pointer-ссылка), чтобы не архивировать дважды.
+
+    Каталог архива берём из cfg.archive_dir_name (а не литерал 'archive/'), иначе при
+    кастомном имени каталога pointer не распознаётся → ломается идемпотентность."""
+    arc = re.escape(cfg.archive_dir_name)
+    return re.compile(re.escape(cfg.precedent_pointer) + r" \[" + arc + r"/precedents-")
 
 
 def _quarter(month: int) -> int:
@@ -83,28 +92,48 @@ def archive_old_precedents(
     archive_appends: Dict[Path, Tuple[int, int, List[Tuple[str, str, str]]]] = {}
     fname = feedback_path.name
 
-    for para in paragraphs:
+    i = 0
+    while i < len(paragraphs):
+        para = paragraphs[i]
         if link_re.search(para):
             new_paragraphs.append(para)
+            i += 1
             continue
         m = head_re.match(para)
         if not m:
             new_paragraphs.append(para)
+            i += 1
             continue
         date_str = m.group(1)
         try:
             d = datetime.date.fromisoformat(date_str)
         except ValueError:
             new_paragraphs.append(para)
+            i += 1
             continue
         if d > threshold:
             new_paragraphs.append(para)
+            i += 1
             continue
+        # Карточка может занимать НЕСКОЛЬКО абзацев: заголовок + последующие абзацы тела
+        # до следующего заголовка-карточки / pointer-ссылки / markdown-заголовка (`#`).
+        # Забираем их вместе, иначе хвост осиротеет в источнике под pointer-строкой
+        # «перенесён в архив» (формально неверной — переехал только заголовок).
+        block_paras = [para]
+        j = i + 1
+        while j < len(paragraphs):
+            nxt = paragraphs[j]
+            if head_re.match(nxt) or link_re.search(nxt) or nxt.lstrip().startswith("#"):
+                break
+            block_paras.append(nxt)
+            j += 1
+        block_text = "\n\n".join(block_paras)
+        i = j
         quarter = _quarter(d.month)
         qfile = _archive_path(memory_root, d.year, quarter, cfg)
         qrelative = f"{cfg.archive_dir_name}/{qfile.name}"
         archive_appends.setdefault(qfile, (d.year, quarter, []))[2].append(
-            (date_str, fname, para)
+            (date_str, fname, block_text)
         )
         new_paragraphs.append(
             msg(
@@ -126,28 +155,31 @@ def archive_old_precedents(
 
     for qfile, (year, quarter, blocks) in archive_appends.items():
         qfile.parent.mkdir(parents=True, exist_ok=True)
-        if not qfile.exists():
-            qfile.write_text(
-                msg(
-                    cfg,
-                    "archive.precedent_file_header",
-                    keyword=cfg.precedent_keyword,
-                    year=year,
-                    quarter=quarter,
-                ),
-                encoding="utf-8",
+        existing = qfile.read_text(encoding="utf-8") if qfile.exists() else ""
+        if not existing:
+            existing = msg(
+                cfg,
+                "archive.precedent_file_header",
+                keyword=cfg.precedent_keyword,
+                year=year,
+                quarter=quarter,
             )
+            qfile.write_text(existing, encoding="utf-8")
         with qfile.open("a", encoding="utf-8") as f:
             for date_str, source_name, block_text in blocks:
-                f.write(
-                    msg(
-                        cfg,
-                        "archive.precedent_block_header",
-                        date_str=date_str,
-                        source_name=source_name,
-                        block_text=block_text,
-                    )
+                # Дедуп: если крах в окне «append прошёл → os.replace источника упал» оставил
+                # карточку в архиве, повторный прогон НЕ должен её задвоить (append не идемпотентен).
+                if block_text.strip() and block_text.strip() in existing:
+                    continue
+                chunk = msg(
+                    cfg,
+                    "archive.precedent_block_header",
+                    date_str=date_str,
+                    source_name=source_name,
+                    block_text=block_text,
                 )
+                f.write(chunk)
+                existing += chunk
 
     new_content = "\n\n".join(new_paragraphs)
     tmp_path = feedback_path.with_name(feedback_path.name + ".tmp")
@@ -284,7 +316,9 @@ def count_real_precedents(text: str, cfg: Optional[MemoryConfig] = None) -> int:
     обслуживания для определения warning-уровня.
     """
     cfg = cfg or get_config()
-    kw = re.escape(cfg.precedent_keyword)
-    total = len(re.findall(rf"\*\*{kw} \d{{4}}-\d{{2}}-\d{{2}}", text))
+    # Считаем ТЕМ ЖЕ регэкспом заголовка, что и архиватор (_precedent_head_re): иначе
+    # карточки с датой в скобках/после слага («**Прецедент #61 (2026-04-27):**») невидимы
+    # счётчику, и warning о количестве живых прецедентов под-срабатывает.
+    total = len(_precedent_head_re(cfg).findall(text))
     linked = len(_link_re(cfg).findall(text))
     return max(0, total - linked)

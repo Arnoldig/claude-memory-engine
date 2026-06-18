@@ -96,7 +96,19 @@ class MemoryConfig:
     # Подстрока(и) id «самой сильной» модели. Строка ИЛИ список строк — совпадение по
     # любой (гибко под смену поколений и разное число премиальных моделей). Страж НЕ
     # перечисляет доступные модели (хук этого не умеет) — это настраиваемый ярлык.
-    strongest_model_substr: object = "fable"
+    # Дефолт — текущее сильнейшее поколение; проект перекрывает при смене линейки.
+    strongest_model_substr: object = "opus"
+
+    # — реестр моделей (model_registry guard, SessionStart): подстраховка от устаревания —
+    # Подстроки id ИЗВЕСТНЫХ проекту моделей. Если сессия идёт на модели, чей id не
+    # содержит ни одной из них → SessionStart мягко напомнит «новая модель, обнови реестр».
+    # Пусто → проверка «неизвестной модели» ВЫКЛ (opt-in).
+    known_model_substrs: Tuple[str, ...] = ()
+    # Дата последней ручной сверки линейки моделей (YYYY-MM-DD). None → таймер-напоминание
+    # ВЫКЛ. Ловит ДЕАКТИВАЦИЮ модели (её по «текущей модели сессии» не увидеть): если сверка
+    # старше model_registry_max_age_days — SessionStart напомнит пересверить линейку.
+    model_registry_verified_on: Optional[str] = None
+    model_registry_max_age_days: int = 60
 
     # — страж формата маркеров (session_marker_guard) —
     marker_limit: int = 200               # макс. длина однострочного session-маркера
@@ -163,7 +175,7 @@ class MemoryConfig:
 _TUPLE_FIELDS = {
     "lesson_prefixes", "watched_dirs", "stopwords", "routine_subagent_types",
     "staleness_skip_dirs", "retrieve_extensions", "size_warn_prefixes",
-    "size_exempt", "session_start_notes",
+    "size_exempt", "session_start_notes", "known_model_substrs",
 }
 
 

@@ -30,6 +30,7 @@ from . import (
     memory_archive,
     memory_concurrency,
     memory_retrieve,
+    model_registry_guard,
     precedent_index,
     session_marker_guard,
     staleness,
@@ -90,11 +91,18 @@ def ev_retrieve(event: dict, cfg: MemoryConfig) -> str:
     return memory_retrieve.run(query, hook_mode=True, cfg=cfg)
 
 
-def ev_session_start(cfg: MemoryConfig) -> str:
-    """SessionStart: проектные ноты + CATALOG + индекс прецедентов + пульс + долг устаревания."""
+def ev_session_start(event: dict, cfg: MemoryConfig) -> str:
+    """SessionStart: проектные ноты + реестр моделей + CATALOG + индекс прецедентов + пульс + долг устаревания."""
     out_lines = []
     # проектные операционные ноты (печатаются как есть; по умолчанию пусто)
     out_lines.extend(n for n in cfg.session_start_notes if n)
+    # подстраховка реестра моделей (неизвестная модель / просрочка сверки) — ноль токенов
+    try:
+        mr = model_registry_guard.run(event, cfg)
+        if mr:
+            out_lines.append(mr)
+    except Exception:  # noqa: BLE001 — fail-open: подстраховка не должна мешать старту
+        pass
     try:
         text, diag = catalog_generate.build_catalog(cfg.memory_dir, cfg)
         cat = Path(cfg.memory_dir) / cfg.catalog_file
@@ -121,7 +129,7 @@ def ev_session_start(cfg: MemoryConfig) -> str:
                 idx = precedent_index.render_index(precedent_index.parse_cards(raw, cfg), arc.name, cfg)
                 idx_path = arc.with_name(arc.stem + "-INDEX.md")
                 idx_path.write_text(idx, encoding="utf-8")
-            except OSError:
+            except Exception:  # noqa: BLE001 — один битый архив не должен рвать весь SessionStart
                 continue
     # показать накопленный SessionEnd-сканом долг устаревания (если есть)
     stale_path = Path(cfg.memory_dir) / staleness.STALE_FILE
@@ -364,7 +372,7 @@ def main() -> None:
         if event_name == "retrieve":
             _emit(ev_retrieve(data, cfg))
         elif event_name == "session-start":
-            _emit(ev_session_start(cfg))
+            _emit(ev_session_start(data, cfg))
         elif event_name == "pre-edit-guard":
             r = ev_pre_edit_guard(data, cfg, session_id, tmpdir)
             if r:

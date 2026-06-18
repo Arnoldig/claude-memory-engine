@@ -27,12 +27,15 @@ def decide(commit_ts: int, feedback_ts: float, now_ts: float, age_limit: int) ->
 
 
 def newest_lesson_mtime(cfg: MemoryConfig) -> float:
-    """mtime самого свежего файла-урока (по первому префиксу, напр. feedback_*.md). 0, если нет."""
-    prefix = cfg.lesson_prefixes[0] if cfg.lesson_prefixes else "feedback"
-    return max(
-        (os.path.getmtime(f) for f in glob.glob(os.path.join(cfg.memory_dir, f"{prefix}_*.md"))),
-        default=0.0,
-    )
+    """mtime самого свежего файла-урока по ВСЕМ префиксам (feedback_/reference_/project_). 0, если нет.
+
+    По всем (а не только первому): иначе запись урока reference_*/project_* после коммита
+    не снимала бы Stop-блок — рассинхрон с task_lesson_recorded, который перебирает все."""
+    prefixes = cfg.lesson_prefixes or ("feedback",)
+    files = []
+    for prefix in prefixes:
+        files += glob.glob(os.path.join(cfg.memory_dir, f"{prefix}_*.md"))
+    return max((os.path.getmtime(f) for f in files), default=0.0)
 
 
 def last_commit_ts(cwd: str) -> int:
@@ -93,8 +96,9 @@ def extract_closed_task(commit_msg: str, pattern: str) -> Optional[str]:
 
 def task_lesson_recorded(cfg: MemoryConfig, task_id: str) -> bool:
     """Есть ли уже запись про задачу `#task_id`: в файле-уроке (любой префикс) или в
-    архиве прецедентов. Ищем хэштег-форму `#<id>` — точно и без ложных совпадений."""
-    needle = f"#{task_id}"
+    архиве прецедентов. Ищем хэштег-форму `#<id>` с границей справа — точно и без ложных
+    совпадений (`#58` НЕ матчит `#580`/`#58-foo`; id бывает числом ИЛИ слагом)."""
+    needle_re = re.compile(r"#" + re.escape(task_id) + r"(?![\w-])")
     candidates: list = []
     mem = Path(cfg.memory_dir)
     for prefix in cfg.lesson_prefixes:
@@ -102,7 +106,7 @@ def task_lesson_recorded(cfg: MemoryConfig, task_id: str) -> bool:
     candidates += glob.glob(str(mem / cfg.archive_dir_name / "*.md"))
     for path in candidates:
         try:
-            if needle in Path(path).read_text(encoding="utf-8"):
+            if needle_re.search(Path(path).read_text(encoding="utf-8")):
                 return True
         except OSError:
             continue

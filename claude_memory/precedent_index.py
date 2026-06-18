@@ -99,7 +99,11 @@ def extract_card(text: str, query: str) -> str:
     """Текст ОДНОЙ карточки, чей заголовок содержит query (дата или подстрока).
 
     Несколько совпадений — все подходящие (разделены пустой строкой). Нет — пустая строка.
+    Пустой/пробельный query → пустая строка (а НЕ весь архив: иначе один промах оператора
+    «--extract без запроса» вывалил бы сотни КБ в контекст — ровно то, ради чего модуль).
     """
+    if not query.strip():
+        return ""
     heads = list(CARD_HEAD_RE.finditer(text))
     out: List[str] = []
     for i, m in enumerate(heads):
@@ -147,6 +151,9 @@ def main() -> None:
 
     if "--extract" in args:
         i = args.index("--extract")
+        if i + 1 >= len(args):
+            print(msg(cfg, "precedent.cli_usage"))
+            return
         archive = args[i + 1]
         query = args[i + 2] if i + 2 < len(args) else ""
         text = Path(archive).read_text(encoding="utf-8")
@@ -156,6 +163,9 @@ def main() -> None:
 
     if "--add-header" in args:
         i = args.index("--add-header")
+        if i + 1 >= len(args):
+            print(msg(cfg, "precedent.cli_usage"))
+            return
         archive = args[i + 1]
         p = Path(archive)
         new = add_warning_header(p.read_text(encoding="utf-8"), cfg)
@@ -167,6 +177,9 @@ def main() -> None:
 
     if "--index" in args:
         i = args.index("--index")
+        if i + 1 >= len(args):
+            print(msg(cfg, "precedent.cli_usage"))
+            return
         archive = args[i + 1]
         text = Path(archive).read_text(encoding="utf-8")
         cards = parse_cards(text, cfg)

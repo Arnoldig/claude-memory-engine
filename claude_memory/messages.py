@@ -57,6 +57,8 @@ DEFAULT_MESSAGES = {
     "marker.violation_reason": "Session marker violates file format: ONE line ≤{limit} characters (yours: {actual_length_or_multiline}). Shorten the marker to the essential one-liner (`<!-- YYYY-MM-DD <hash> #tag — summary -->`), put the full session breakdown in drafts/<session>.md or archive/ and link to it. A retry with the corrected marker will pass. [session-marker-guard]",
     "model_guard.no_model_reason": "Sub-agent (type {subagent_type}) launched without specifying `model` — it will inherit the main-thread model (the most expensive). Tier rule: delegate bulk read/search/mechanical work to a cheap model, judgment tasks to a mid-tier model, sensitive delegated reviews to the upper delegable tier; keep the strongest model for the critical path and final decisions. Re-issue the call with an explicit `model:` — or repeat as-is if the strongest model is genuinely needed here (the repeat will pass). Reminder fires once per session. [subagent-model-guard]",
     "model_guard.strongest_model_reason": "Routine sub-agent (type {subagent_type}) launched on the STRONGEST model (`{model}`) — that is the main-thread tier; for a delegated call it is almost always overspend. If the strongest model is genuinely needed here, repeat the call as-is (it will pass); otherwise re-issue with the appropriate tier from the scheme. Reminder fires once per session. [subagent-model-guard]",
+    "model_registry.unknown_model": "[model-registry] This session runs on model `{model}`, which is not in the known model registry — a new generation may have shipped or an id changed. Review and update `known_model_substrs` / `strongest_model_substr` in the memory config (and the tier guidance in your project docs), then bump `model_registry_verified_on`.",
+    "model_registry.stale": "[model-registry] The model registry has not been re-verified for {days} days (since {date}). A model may have been deactivated (e.g. a retired generation) or a new one shipped. Re-check the lineup, update `strongest_model_substr` / `known_model_substrs` if needed, then set `model_registry_verified_on` to today to clear this reminder.",
     "precedent.cli_usage": "usage: python3 -m claude_memory.precedent_index --index <archive> [--write] | --extract <archive> <query> | --add-header <archive>",
     "precedent.extract_not_found": "(no card found for query: {query!r})",
     "precedent.header_written": "Warning header written to {filename} (idempotent).",
@@ -91,14 +93,38 @@ DEFAULT_MESSAGES = {
 }
 
 
+def _safe_format(template: str, params: dict) -> Optional[str]:
+    """template.format(**params) или None, если в шаблоне битый/неизвестный плейсхолдер.
+
+    Ловит KeyError (нет такого именованного поля), IndexError (позиционный {} без арга)
+    и ValueError (битая фигурная скобка/спецификатор). None = «этот шаблон не подошёл»."""
+    if not params:
+        return template
+    try:
+        return template.format(**params)
+    except (KeyError, IndexError, ValueError):
+        return None
+
+
 def msg(cfg, key: str, **params) -> str:
-    """Операторское сообщение по ключу: override из cfg.messages → дефолт → сам ключ."""
-    template: Optional[str] = None
+    """Операторское сообщение по ключу: override из cfg.messages → дефолт → сам ключ.
+
+    Fail-soft на ДВУХ уровнях: (1) неизвестный ключ → возвращаем ключ; (2) битый
+    плейсхолдер в override проекта (напр. `{len(cards)}` вместо `{card_count}`) НЕ роняет
+    хук — деградируем на дефолт библиотеки (его плейсхолдеры заведомо верны), а если и он
+    не форматируется — отдаём сырой шаблон. Иначе одна опечатка в конфиге тихо отключала
+    бы целую функцию (хуки fail-open проглатывают исключение)."""
     overrides = getattr(cfg, "messages", None) if cfg is not None else None
-    if overrides:
-        template = overrides.get(key)
-    if template is None:
-        template = DEFAULT_MESSAGES.get(key)
-    if template is None:
-        return key  # fail-soft: неизвестный ключ виден, но хук не падает
-    return template.format(**params) if params else template
+    override = overrides.get(key) if overrides else None
+    default = DEFAULT_MESSAGES.get(key)
+    if override is not None:
+        out = _safe_format(override, params)
+        if out is not None:
+            return out
+        # битый плейсхолдер в override → не падаем, пробуем дефолт
+    if default is not None:
+        out = _safe_format(default, params)
+        if out is not None:
+            return out
+    # последний рубеж: сырой шаблон без подстановки (виден текст) или сам ключ
+    return override or default or key

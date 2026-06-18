@@ -154,7 +154,7 @@ def test_configurable_catalog_markers_preserve_preamble(cfg) -> None:
 
 def test_session_start_notes_emitted(cfg) -> None:
     cfg2 = replace(cfg, session_start_notes=("ЛОГИН: только через скрипт", "вторая нота"))
-    out = H.ev_session_start(cfg2)
+    out = H.ev_session_start({}, cfg2)
     assert "ЛОГИН: только через скрипт" in out and "вторая нота" in out
 
 
@@ -171,5 +171,5 @@ def test_marker_guard_respects_message_override(cfg) -> None:
 def test_model_guard_respects_message_override(cfg) -> None:
     from claude_memory import subagent_model_guard as G
     cfg2 = replace(cfg, messages={"model_guard.strongest_model_reason": "СИЛЬНАЯ модель {model}"})
-    r = G.decide_strongest("Agent", {"subagent_type": "general-purpose", "model": "claude-fable-5"}, cfg2)
-    assert r == "СИЛЬНАЯ модель claude-fable-5"
+    r = G.decide_strongest("Agent", {"subagent_type": "general-purpose", "model": "claude-opus-4-8"}, cfg2)
+    assert r == "СИЛЬНАЯ модель claude-opus-4-8"

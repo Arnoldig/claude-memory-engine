@@ -10,7 +10,7 @@ from claude_memory import config as C
 def test_defaults_are_neutral() -> None:
     cfg = C.MemoryConfig(memory_dir="/m", project_root="/p")
     assert cfg.core_file == "MEMORY.md"
-    assert cfg.strongest_model_substr == "fable"
+    assert cfg.strongest_model_substr == "opus"
     assert cfg.marker_limit == 200
     assert ("workflow", "Workflow & methodology") in cfg.topic_order
     assert cfg.topic_titles()["core"].startswith("Hot core")

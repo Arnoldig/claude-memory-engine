@@ -42,6 +42,21 @@ def _repo_files(cfg: MemoryConfig) -> List[str]:
     return files
 
 
+def _glob_matches_disk(root: str, pattern: str) -> bool:
+    """True, если applies_to-glob (относительно root) матчит хоть один реальный путь на диске.
+
+    Фолбэк к прямой проверке: `_repo_files` намеренно НЕ обходит staleness_skip_dirs
+    (.git/.venv/node_modules/.claude/...) ради скорости, но applies_to законно ведёт в
+    .claude/ (уроки самого движка памяти). Без этой проверки такие живые привязки ложно
+    помечались бы «протухшими» на каждом SessionStart."""
+    if not root or not pattern:
+        return False
+    try:
+        return bool(glob.glob(os.path.join(root, pattern), recursive=True))
+    except (OSError, ValueError):
+        return False
+
+
 def scan(
     cfg: Optional[MemoryConfig] = None, today: Optional[datetime.date] = None
 ) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, List[str]]]]:
@@ -76,6 +91,7 @@ def scan(
             dead = [
                 g for g in _applies_globs(fm)
                 if not any(c == g or fnmatch.fnmatch(c, g) for c in repo_files)
+                and not _glob_matches_disk(cfg.project_root, g)
             ]
             if dead:
                 broken.append((name, dead))

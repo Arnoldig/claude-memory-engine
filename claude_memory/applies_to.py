@@ -25,10 +25,18 @@ _APPLIES_RE = re.compile(r"^[ \t]*applies_to:[ \t]*(.*)$", re.MULTILINE)
 _DESC_RE = re.compile(r"^description:\s*(.*)$", re.MULTILINE)
 
 
+def read_head(path: str, cap: int = 65536) -> str:
+    """Начало файла до cap байт (по умолч. 64К). Покрывает весь frontmatter любого
+    реального урока + начало тела. Заменяет прежние фикс.окна 2000/4000, которые молча
+    ТЕРЯЛИ длинный frontmatter (и applies_to-глоб, и поля для ретривера). Уроки малы —
+    цена чтения ничтожна. OSError пробрасывается вызывающему."""
+    with open(path, encoding="utf-8") as f:
+        return f.read(cap)
+
+
 def _frontmatter(path: str) -> str:
     try:
-        with open(path, encoding="utf-8") as f:
-            head = f.read(2000)
+        head = read_head(path)
     except OSError:
         return ""
     if not head.startswith("---"):
@@ -70,7 +78,10 @@ def _candidates(target: str, project_root: str) -> set:
     Так applies_to работает одинаково и в worktree, и вне его (#memory-lib-cutover).
     """
     abspath = os.path.abspath(target)
-    cands = {target, target.lstrip("./")}
+    # removeprefix («./»), НЕ lstrip(«./»): lstrip снимает КЛАСС символов {'.', '/'} и
+    # портит dotfile-пути ('.github/x.yml' → 'github/x.yml'), порождая ложный кандидат,
+    # способный совпасть с typo-глобом. Нужно снять ровно ведущий «./» относительного пути.
+    cands = {target, target.removeprefix("./")}
     # 1) относительно корня проекта из конфига
     try:
         root_abs = os.path.abspath(project_root)
