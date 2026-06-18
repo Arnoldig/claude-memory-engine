@@ -1,0 +1,165 @@
+{
+  "memory_dir": "~/.claude/memory",
+  "project_root": ".",
+  "core_file": "MEMORY.md",
+  "catalog_file": "CATALOG.md",
+  "session_lessons_file": "feedback_session_end_lessons.md",
+  "lesson_prefixes": [
+    "feedback",
+    "reference",
+    "project"
+  ],
+  "topic_order": [
+    [
+      "workflow",
+      "Workflow & methodology"
+    ],
+    [
+      "testing",
+      "Testing"
+    ],
+    [
+      "infra",
+      "Infrastructure & CI"
+    ],
+    [
+      "security",
+      "Security"
+    ],
+    [
+      "docs",
+      "Documentation"
+    ],
+    [
+      "core",
+      "Hot core (mirrored in the core file)"
+    ]
+  ],
+  "no_topic_title": "⚠ No topic (add `topic:` to the frontmatter to file it here)",
+  "catalog_preamble": "# Lessons Catalog (read on demand)",
+  "desc_max": 150,
+  "oversize_bytes": 9000,
+  "catalog_auto_start": "<!-- AUTO-INDEX:START — managed by catalog_generate; edits between markers are overwritten -->",
+  "catalog_auto_end": "<!-- AUTO-INDEX:END -->",
+  "private_file_prefix": "_",
+  "health_pulse_throttle": true,
+  "watched_dirs": [
+    "app",
+    "tests",
+    "src",
+    "lib",
+    "scripts",
+    "docs"
+  ],
+  "retrieve_extensions": [
+    "py",
+    "html",
+    "js",
+    "ts",
+    "css",
+    "sh",
+    "yaml",
+    "yml",
+    "json",
+    "md",
+    "rs",
+    "go",
+    "java",
+    "rb"
+  ],
+  "retrieve_top_n": 6,
+  "retrieve_threshold": 6.0,
+  "retrieve_stem": 5,
+  "retrieve_min_token": 3,
+  "retrieve_body_chars": 1500,
+  "stopwords": [
+    "the",
+    "and",
+    "for",
+    "with",
+    "this",
+    "that",
+    "are",
+    "was",
+    "were",
+    "but",
+    "not",
+    "you",
+    "your",
+    "from",
+    "have",
+    "has",
+    "can",
+    "will",
+    "any",
+    "all",
+    "new",
+    "add",
+    "make",
+    "use",
+    "set",
+    "get",
+    "via",
+    "per",
+    "into",
+    "onto",
+    "file",
+    "files",
+    "step",
+    "part",
+    "after",
+    "before"
+  ],
+  "retrieve_cache_enabled": true,
+  "retrieve_cache_file": "_retrieve_cache.sqlite3",
+  "retrieve_cache_busy_timeout_ms": 4000,
+  "routine_subagent_types": [
+    "Explore",
+    "general-purpose",
+    "claude-code-guide"
+  ],
+  "default_subagent_type": "general-purpose",
+  "strongest_model_substr": "opus",
+  "known_model_substrs": [
+    "haiku",
+    "sonnet",
+    "opus"
+  ],
+  "model_registry_verified_on": "2026-06-18",
+  "model_registry_max_age_days": 60,
+  "marker_limit": 200,
+  "core_budget_bytes": 15000,
+  "core_size_unit": "chars",
+  "core_warn_ratio": 0.8,
+  "feedback_warn_bytes": 4000,
+  "size_warn_prefixes": null,
+  "size_warn_skip_archive": true,
+  "size_exempt": [],
+  "size_override": {},
+  "precedent_count_warn": 3,
+  "precedent_archive_days": 30,
+  "marker_archive_days": 7,
+  "archive_dir_name": "archive",
+  "precedent_keyword": "Прецедент",
+  "precedent_pointer": "перенесён в",
+  "staleness_skip_dirs": [
+    ".git",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "dist",
+    "build",
+    ".ruff_cache",
+    ".claude"
+  ],
+  "stop_lessons_enabled": true,
+  "stop_commit_age_limit_seconds": 14400,
+  "task_close_lesson_gate": true,
+  "task_close_pattern": "(?i)\\b(?:clos(?:e|es|ed)|fix(?:es|ed)?)\\s+#([\\w-]+)",
+  "session_start_notes": [],
+  "messages": {
+    "unit.chars": "(example) override any operator string here; English defaults live in claude_memory/messages.py"
+  }
+}
