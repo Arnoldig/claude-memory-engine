@@ -38,6 +38,7 @@ _MD_LINK_RE = re.compile(r"\]\((?!https?:)([^)]+?\.md)(?:#[^)]*)?\)")
 # Inline-примеры формата ссылки в уроках о самой памяти — не реальные цели.
 _PLACEHOLDER_TARGETS = frozenset({"файл.md", "file.md"})
 _SUBLABEL_RE = re.compile(r"^\s*-\s+\*\*(.+?)\*\*")
+_WIKILINK_RE = re.compile(r"\[\[([^\]\[]+)\]\]")
 
 
 class Lesson(NamedTuple):
@@ -202,6 +203,39 @@ def find_broken_links(memory_dir: str, cfg: Optional[MemoryConfig] = None) -> Li
     return sorted(set(broken))
 
 
+def find_broken_wikilinks(memory_dir: str, cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str]]:
+    """Битые `[[X]]`-ссылки между уроками (вторая конвенция связывания помимо `](x.md)`).
+
+    Валидируем ТОЛЬКО ссылки-на-урок: цель X начинается с префикса урока
+    (feedback_/reference_/project_). Цель валидна, если есть файл `X.md` ИЛИ урок с
+    `name: X`. Произвольные `[[...]]` (не похожие на ссылку-урок) не трогаем — нет
+    ложных срабатываний на прозе/примерах.
+    """
+    cfg = cfg or get_config()
+    texts: Dict[str, str] = {}
+    valid: set = set()
+    for path, base in _lesson_paths(memory_dir, cfg):
+        t = Path(path).read_text(encoding="utf-8")
+        texts[base] = t
+        valid.add(base[:-3] if base.endswith(".md") else base)
+        nm = parse_frontmatter(t).get("name")
+        if nm:
+            valid.add(nm)
+    prefixes = tuple(p + "_" for p in cfg.lesson_prefixes)
+    broken: List[Tuple[str, str]] = []
+    for base, t in texts.items():
+        for m in _WIKILINK_RE.finditer(t):
+            target = m.group(1).strip()
+            if not target.startswith(prefixes):
+                continue
+            # обе конвенции записи цели: `[[feedback_x]]` и `[[feedback_x.md]]` — норму
+            # (без .md) сверяем с набором {имя_файла_без_.md} ∪ {name-слаги}.
+            norm = target[:-3] if target.endswith(".md") else target
+            if norm not in valid and target not in valid:
+                broken.append((base, target))
+    return sorted(set(broken))
+
+
 def run_diagnostics(
     memory_dir: str, lessons: List[Lesson], cfg: Optional[MemoryConfig] = None
 ) -> Dict[str, list]:
@@ -221,6 +255,7 @@ def run_diagnostics(
         "no_frontmatter": no_fm,
         "oversize": oversize,
         "broken_links": find_broken_links(memory_dir, cfg),
+        "broken_wikilinks": find_broken_wikilinks(memory_dir, cfg),
     }
 
 
@@ -411,14 +446,21 @@ def format_health_pulse(diag: Dict[str, list], cfg: Optional[MemoryConfig] = Non
     cfg = cfg or get_config()
     nt = len(diag["no_topic"])
     bl = len(diag["broken_links"])
+    wbl = len(diag.get("broken_wikilinks", []))
     osz = len(diag["oversize"])
-    if nt == 0 and bl == 0:
+    total = diag["total"][0] if diag.get("total") else 0
+    many = bool(cfg.lesson_count_warn) and total >= cfg.lesson_count_warn
+    if nt == 0 and bl == 0 and wbl == 0 and not many:
         return ""
     parts = []
     if nt:
         parts.append(msg(cfg, "health.no_topic", nt=nt))
     if bl:
         parts.append(msg(cfg, "health.broken_links", bl=bl))
+    if wbl:
+        parts.append(msg(cfg, "health.broken_wikilinks", wbl=wbl))
+    if many:
+        parts.append(msg(cfg, "health.many_lessons", total=total, limit=cfg.lesson_count_warn))
     if osz:
         parts.append(msg(cfg, "health.oversize", osz=osz, oversize_kb=cfg.oversize_bytes // 1000))
     return msg(cfg, "health.pulse_prefix") + "; ".join(parts) + msg(cfg, "health.pulse_suffix")
@@ -449,7 +491,12 @@ def throttle_pulse(
     if today is None:
         today = datetime.date.today()
     marker = marker or health_marker_path(cfg)
-    sig = f"nt{len(diag['no_topic'])}_bl{len(diag['broken_links'])}"
+    _total = diag["total"][0] if diag.get("total") else 0
+    _many = 1 if (cfg.lesson_count_warn and _total >= cfg.lesson_count_warn) else 0
+    sig = (
+        f"nt{len(diag['no_topic'])}_bl{len(diag['broken_links'])}"
+        f"_wbl{len(diag.get('broken_wikilinks', []))}_many{_many}"
+    )
     last_date = last_sig = ""
     try:
         last_date, last_sig = (

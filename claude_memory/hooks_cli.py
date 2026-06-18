@@ -32,6 +32,7 @@ from . import (
     memory_retrieve,
     model_registry_guard,
     precedent_index,
+    self_check,
     session_marker_guard,
     staleness,
     stop_check,
@@ -96,6 +97,14 @@ def ev_session_start(event: dict, cfg: MemoryConfig) -> str:
     out_lines = []
     # проектные операционные ноты (печатаются как есть; по умолчанию пусто)
     out_lines.extend(n for n in cfg.session_start_notes if n)
+    # самодиагностика конфигурации (битые плейсхолдеры) — КАЖДЫЙ старт, не throttle:
+    # битая настройка тихо портит весь сеанс, должна быть видна сразу и пока не исправят.
+    try:
+        sc = self_check.run(cfg)
+        if sc:
+            out_lines.append(sc)
+    except Exception:  # noqa: BLE001 — fail-open
+        pass
     # подстраховка реестра моделей (неизвестная модель / просрочка сверки) — ноль токенов
     try:
         mr = model_registry_guard.run(event, cfg)
