@@ -25,18 +25,30 @@ def format_record(
     tool_input: object,
     now_iso: str,
     routine_types: Optional[frozenset] = None,
+    default_type: Optional[str] = None,
 ) -> Optional[str]:
     """Чистая логика (без файловой системы): JSONL-строка о спавне или None.
 
     None — если tool_input не dict. `model` пустой → "INHERITED" (наследование модели
     главного потока — то, что мы и хотим ловить замером). routine_types по умолчанию —
     из конфига.
+
+    Опущенный `subagent_type` → harness берёт default_type (general-purpose) → пишем его
+    в `type` (журнал честно отражает, что РЕАЛЬНО запустилось — рутинный general-purpose,
+    а не «?»-не-рутина) и ставим `type_implicit: true`, чтобы анализ «забыл указать тип»
+    оставался виден. default_type по умолчанию — из конфига.
     """
     if not isinstance(tool_input, dict):
         return None
     if routine_types is None:
         routine_types = frozenset(get_config().routine_subagent_types)
-    subagent_type = str(tool_input.get("subagent_type") or "").strip() or "?"
+    raw_type = str(tool_input.get("subagent_type") or "").strip()
+    if raw_type:
+        subagent_type = raw_type
+    else:
+        if default_type is None:
+            default_type = get_config().default_subagent_type
+        subagent_type = default_type
     model = str(tool_input.get("model") or "").strip() or "INHERITED"
     prompt = tool_input.get("prompt")
     prompt_chars = len(prompt) if isinstance(prompt, str) else 0
@@ -44,6 +56,7 @@ def format_record(
         "ts": now_iso,
         "session": session_id or "nosess",
         "type": subagent_type,
+        "type_implicit": not raw_type,
         "model": model,
         "routine": subagent_type in routine_types,
         "prompt_chars": prompt_chars,

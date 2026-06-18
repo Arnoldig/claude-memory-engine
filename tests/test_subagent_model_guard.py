@@ -52,6 +52,21 @@ def test_routine_types_configurable(cfg) -> None:
     assert G.decide("Agent", {"subagent_type": "Explore"}, cfg2) is None  # больше не рутинный
 
 
+def test_omitted_type_treated_as_default(cfg) -> None:
+    # subagent_type опущен → harness берёт default (general-purpose, рутинный) →
+    # страж обязан вести себя так же, как на ЯВНОМ general-purpose
+    assert G.decide("Agent", {"prompt": "x"}, cfg) is not None                       # забыл model
+    assert G.decide("Agent", {"model": "sonnet", "prompt": "x"}, cfg) is None        # осознанный ярус
+    r = G.decide_strongest("Agent", {"model": "claude-opus-4-8", "prompt": "x"}, cfg)
+    assert r and "STRONGEST" in r                                                    # опущенный тип + сильнейшая → нудж
+
+
+def test_omitted_type_default_configurable(cfg) -> None:
+    # default_subagent_type вне routine_subagent_types → опущенный тип НЕ рутинный (fail-open)
+    cfg2 = replace(cfg, default_subagent_type="Plan")
+    assert G.decide("Agent", {"prompt": "x"}, cfg2) is None
+
+
 def test_gate_fires_once(cfg, tmp_path) -> None:
     td = str(tmp_path / "tmp")
     first = G.gate("sess1", "Agent", {"subagent_type": "Explore"}, td, cfg)

@@ -27,6 +27,25 @@ def test_format_non_routine(cfg) -> None:
     assert json.loads(line)["routine"] is False
 
 
+def test_format_omitted_type_resolves_to_default(cfg) -> None:
+    # subagent_type опущен → пишем реальный default (general-purpose), routine=True,
+    # type_implicit=True (сигнал «тип не указан» остаётся видимым для анализа)
+    line = S.format_record("s", {"model": "opus", "prompt": "x" * 5}, "T",
+                           routine_types=frozenset(cfg.routine_subagent_types),
+                           default_type="general-purpose")
+    rec = json.loads(line)
+    assert rec["type"] == "general-purpose"
+    assert rec["type_implicit"] is True
+    assert rec["routine"] is True
+
+
+def test_format_explicit_type_not_implicit(cfg) -> None:
+    line = S.format_record("s", {"subagent_type": "Explore", "model": "haiku"}, "T",
+                           routine_types=frozenset(cfg.routine_subagent_types),
+                           default_type="general-purpose")
+    assert json.loads(line)["type_implicit"] is False
+
+
 def test_format_non_dict_none() -> None:
     assert S.format_record("s", "notdict", "T", routine_types=frozenset()) is None
 

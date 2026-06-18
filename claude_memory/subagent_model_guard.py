@@ -37,7 +37,10 @@ def _routine_call(tool_name: str, tool_input: object, cfg: MemoryConfig) -> Opti
         return None
     if not isinstance(tool_input, dict):
         return None
-    subagent_type = str(tool_input.get("subagent_type") or "").strip()
+    # Опущенный subagent_type → harness берёт default_subagent_type (general-purpose),
+    # а это рутинный тип → страж обязан срабатывать так же, как на ЯВНОМ general-purpose
+    # (иначе самый частый «забыл и тип, и model» спавн проскакивал бы мимо стража).
+    subagent_type = str(tool_input.get("subagent_type") or "").strip() or cfg.default_subagent_type
     if subagent_type not in cfg.routine_subagent_types:
         return None
     model = str(tool_input.get("model") or "").strip()
