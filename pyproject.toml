@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-memory-engine"
-version = "0.1.0"
+version = "0.4.0"
 description = "Reusable lessons/memory engine for Claude Code: frontmatter lessons, auto-CATALOG, offline retrieval, path-triggered lessons, auto-maintenance, parallel-session and sub-agent guards."
 readme = "README.md"
 requires-python = ">=3.9"

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import math
 import os
@@ -26,6 +27,7 @@ import re
 import sys
 from typing import Dict, List, Optional, Tuple
 
+from . import sqlite_index
 from .applies_to import find_lessons_for_path, read_head
 from .config import MemoryConfig, get_config
 from .messages import msg
@@ -81,27 +83,87 @@ def read_fields(path: str, body_chars: int = 1500):
     return field("name"), field("description"), field("keywords"), body[:body_chars]
 
 
-def score_files(query: str, cfg: Optional[MemoryConfig] = None):
-    """TF-IDF-подобный скоринг по урокам в cfg.memory_dir. Возвращает [(score, file, label)]."""
-    cfg = cfg or get_config()
-    q = tokenize(query, cfg)
-    if not q:
-        return []
+def _parse_doc(path: str, cfg: MemoryConfig):
+    """Разбор ОДНОГО файла-урока в (is_empty, nstems, dstems, bstems, label).
+
+    Единый источник истины разбора и для полного скана, и для SQLite-кэша — стемы в
+    обоих путях считаются ТУТ, поэтому ранжирование идентично. `is_empty` повторяет
+    отбраковку file-scan (`if not (name or desc or kw or body)`): пустые уроки в скоринг
+    не идут, чтобы n и df совпадали 1:1 между кэшем и сканом.
+    """
+    name, desc, kw, body = read_fields(path, cfg.retrieve_body_chars)
+    is_empty = not (name or desc or kw or body)
+    nstems = tokenize(name, cfg) | tokenize(kw, cfg)  # имя + ключевые слова — высокий вес
+    dstems = tokenize(desc, cfg)
+    bstems = tokenize(body, cfg)
+    label = desc or name or os.path.basename(path)
+    return is_empty, nstems, dstems, bstems, label
+
+
+def _params_fingerprint(cfg: MemoryConfig) -> str:
+    """Отпечаток параметров токенизации. Смена любого → кэш стемов устарел → обнулить.
+
+    Покрывает ровно то, что влияет на содержимое стемов: длину стема, минимальный
+    токен, окно тела, набор стоп-слов. body_chars влияет на bstems (сколько тела
+    индексируем). Не включает веса/IDF — они считаются по стемам на лету, кэш их не хранит.
+    """
+    payload = json.dumps(
+        {
+            "stem": cfg.retrieve_stem,
+            "min_token": cfg.retrieve_min_token,
+            "body_chars": cfg.retrieve_body_chars,
+            "stopwords": sorted(cfg.stopwords),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _candidate_files(cfg: MemoryConfig) -> List[str]:
+    """Пути файлов-уроков для скоринга: все *.md в memory_dir минус ядро/каталог/приватные."""
     skip = {cfg.core_file, cfg.catalog_file}
-    docs = []
-    df_title: Dict[str, int] = {}
-    df_all: Dict[str, int] = {}
+    out = []
     for mf in glob.glob(os.path.join(cfg.memory_dir, "*.md")):
         base = os.path.basename(mf)
         if base in skip or base.startswith(cfg.private_file_prefix):
             continue
-        name, desc, kw, body = read_fields(mf, cfg.retrieve_body_chars)
-        if not (name or desc or kw or body):
+        out.append(mf)
+    return out
+
+
+def _scan_docs(cfg: MemoryConfig, files: List[str]):
+    """Полный file-scan (fallback, когда кэш недоступен): читает и разбирает каждый файл."""
+    docs = []
+    for mf in files:
+        is_empty, nstems, dstems, bstems, label = _parse_doc(mf, cfg)
+        if is_empty:
             continue
-        nstems = tokenize(name, cfg) | tokenize(kw, cfg)  # имя + ключевые слова — высокий вес
-        dstems = tokenize(desc, cfg)
-        bstems = tokenize(body, cfg)
-        docs.append((base, nstems, dstems, bstems, desc or name or base))
+        docs.append((os.path.basename(mf), nstems, dstems, bstems, label))
+    return docs
+
+
+def score_files(query: str, cfg: Optional[MemoryConfig] = None):
+    """TF-IDF-подобный скоринг по урокам в cfg.memory_dir. Возвращает [(score, file, label)].
+
+    Сперва пробует SQLite-кэш (sqlite_index); если он недоступен/выключен/повреждён —
+    откатывается на полный file-scan. Оба пути дают ОДИН и тот же набор docs (стемы из
+    `_parse_doc`), поэтому df, n и итоговое ранжирование идентичны.
+    """
+    cfg = cfg or get_config()
+    q = tokenize(query, cfg)
+    if not q:
+        return []
+    files = _candidate_files(cfg)
+    docs = sqlite_index.load_docs(
+        cfg, files, _params_fingerprint(cfg), lambda p: _parse_doc(p, cfg)
+    )
+    if docs is None:  # кэш недоступен → полный скан (поведение 1:1 с прежним)
+        docs = _scan_docs(cfg, files)
+
+    df_title: Dict[str, int] = {}
+    df_all: Dict[str, int] = {}
+    for _base, nstems, dstems, bstems, _label in docs:
         title = nstems | dstems
         for s in title:
             df_title[s] = df_title.get(s, 0) + 1

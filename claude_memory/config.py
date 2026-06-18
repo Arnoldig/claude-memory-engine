@@ -94,6 +94,16 @@ class MemoryConfig:
     retrieve_min_token: int = 3           # игнорировать токены короче
     retrieve_body_chars: int = 1500       # сколько символов тела урока индексировать
     stopwords: Tuple[str, ...] = _DEFAULT_STOPWORDS
+    # — SQLite-кэш ретривера (sqlite_index): ускоряет score_files, не меняя ранжирование —
+    # Кэш разобранных токенов уроков поверх markdown (файлы — источник истины). Свежесть
+    # сверяется по mtime+size ПРИ ЧТЕНИИ; формула весов не меняется. Любая ошибка кэша →
+    # тихий откат на полный file-scan. False — киллсвитч (всегда file-scan, ноль изменений).
+    retrieve_cache_enabled: bool = True
+    # Имя файла-БД в memory_dir. Держите приватный префикс (private_file_prefix) — тогда
+    # она и WAL-спутники вне глобов движка. Не .md → ретривером всё равно не выдаётся.
+    retrieve_cache_file: str = "_retrieve_cache.sqlite3"
+    # Сколько мс ждать освобождения блокировки записи (параллельные сессии), а не падать.
+    retrieve_cache_busy_timeout_ms: int = 4000
 
     # — страж модели суб-агентов (subagent_model_guard) —
     routine_subagent_types: Tuple[str, ...] = ("Explore", "general-purpose", "claude-code-guide")
