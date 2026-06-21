@@ -96,7 +96,8 @@ def test_pulse_many_lessons_nudges(cfg) -> None:
     from claude_memory import catalog_generate as cg
     cfg2 = replace(cfg, lesson_count_warn=2)
     for i in range(3):
-        write_lesson(cfg.memory_dir, f"feedback_{i}.md", description=f"d{i}", topic="workflow")
+        write_lesson(cfg.memory_dir, f"feedback_{i}.md", name=f"урок {i}",
+                     description=f"d{i}", topic="workflow")
     _, diag = cg.build_catalog(cfg2.memory_dir, cfg2)
     pulse = cg.format_health_pulse(diag, cfg2)
     assert "3" in pulse and "duplicat" in pulse.lower()
@@ -105,7 +106,8 @@ def test_pulse_many_lessons_nudges(cfg) -> None:
 def test_pulse_silent_under_threshold(cfg) -> None:
     from claude_memory import catalog_generate as cg
     cfg2 = replace(cfg, lesson_count_warn=100)
-    write_lesson(cfg.memory_dir, "feedback_a.md", description="a", topic="workflow")
+    write_lesson(cfg.memory_dir, "feedback_a.md", name="урок a",
+                 description="a", topic="workflow")
     _, diag = cg.build_catalog(cfg2.memory_dir, cfg2)
     assert cg.format_health_pulse(diag, cfg2) == ""
 
@@ -113,6 +115,7 @@ def test_pulse_silent_under_threshold(cfg) -> None:
 def test_pulse_count_check_off_by_default(cfg) -> None:
     from claude_memory import catalog_generate as cg
     for i in range(5):
-        write_lesson(cfg.memory_dir, f"feedback_{i}.md", description=f"d{i}", topic="workflow")
+        write_lesson(cfg.memory_dir, f"feedback_{i}.md", name=f"урок {i}",
+                     description=f"d{i}", topic="workflow")
     _, diag = cg.build_catalog(cfg.memory_dir, cfg)   # lesson_count_warn=0 (выкл)
     assert cg.format_health_pulse(diag, cfg) == ""

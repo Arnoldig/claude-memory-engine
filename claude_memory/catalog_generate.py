@@ -244,6 +244,10 @@ def run_diagnostics(
     titles = cfg.topic_titles()
     no_topic = sorted(ls.filename for ls in lessons if ls.topic not in titles)
     no_desc = sorted(ls.filename for ls in lessons if not ls.description)
+    # Пустой `name` без keywords обнуляет высоковесный (×2) набор токенов заголовка —
+    # урок труднее «всплывает» в retrieve. Частый источник — нормализация frontmatter
+    # инструментом редактирования (обнуляет name); чинится восстановлением заголовка.
+    no_name = sorted(ls.filename for ls in lessons if not ls.name)
     no_fm = sorted(ls.filename for ls in lessons if not ls.has_frontmatter)
     oversize = sorted(
         (ls.filename, ls.size) for ls in lessons if ls.size > cfg.oversize_bytes
@@ -252,6 +256,7 @@ def run_diagnostics(
         "total": [len(lessons)],
         "no_topic": no_topic,
         "no_description": no_desc,
+        "no_name": no_name,
         "no_frontmatter": no_fm,
         "oversize": oversize,
         "broken_links": find_broken_links(memory_dir, cfg),
@@ -445,16 +450,19 @@ def format_health_pulse(diag: Dict[str, list], cfg: Optional[MemoryConfig] = Non
     """Компактная сводка здоровья для SessionStart. Пусто, если нет actionable-долга."""
     cfg = cfg or get_config()
     nt = len(diag["no_topic"])
+    nn = len(diag.get("no_name", []))
     bl = len(diag["broken_links"])
     wbl = len(diag.get("broken_wikilinks", []))
     osz = len(diag["oversize"])
     total = diag["total"][0] if diag.get("total") else 0
     many = bool(cfg.lesson_count_warn) and total >= cfg.lesson_count_warn
-    if nt == 0 and bl == 0 and wbl == 0 and not many:
+    if nt == 0 and nn == 0 and bl == 0 and wbl == 0 and not many:
         return ""
     parts = []
     if nt:
         parts.append(msg(cfg, "health.no_topic", nt=nt))
+    if nn:
+        parts.append(msg(cfg, "health.no_name", nn=nn))
     if bl:
         parts.append(msg(cfg, "health.broken_links", bl=bl))
     if wbl:
@@ -494,7 +502,8 @@ def throttle_pulse(
     _total = diag["total"][0] if diag.get("total") else 0
     _many = 1 if (cfg.lesson_count_warn and _total >= cfg.lesson_count_warn) else 0
     sig = (
-        f"nt{len(diag['no_topic'])}_bl{len(diag['broken_links'])}"
+        f"nt{len(diag['no_topic'])}_nn{len(diag.get('no_name', []))}"
+        f"_bl{len(diag['broken_links'])}"
         f"_wbl{len(diag.get('broken_wikilinks', []))}_many{_many}"
     )
     last_date = last_sig = ""
@@ -572,6 +581,9 @@ def main() -> None:
     for f in diag["no_topic"]:
         print(msg(cfg, "diag.no_topic_item", f=f), file=sys.stderr)
     print(msg(cfg, "diag.no_description", count=len(diag["no_description"])), file=sys.stderr)
+    print(msg(cfg, "diag.no_name", count=len(diag.get("no_name", []))), file=sys.stderr)
+    for f in diag.get("no_name", []):
+        print(msg(cfg, "diag.no_name_item", f=f), file=sys.stderr)
     print(msg(cfg, "diag.no_frontmatter", count=len(diag["no_frontmatter"])), file=sys.stderr)
     print(msg(cfg, "diag.oversize_count", oversize_bytes=cfg.oversize_bytes, count=len(diag["oversize"])), file=sys.stderr)
     print(msg(cfg, "diag.broken_links_count", count=len(diag["broken_links"])), file=sys.stderr)

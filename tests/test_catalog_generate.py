@@ -63,6 +63,24 @@ def test_diagnostics_flags(cfg) -> None:
     assert ("feedback_link.md", "feedback_missing.md") in diag["broken_links"]
 
 
+def test_diagnostics_and_pulse_flag_empty_name(cfg) -> None:
+    # name заполнен → не в no_name; name отсутствует → в no_name и поднимает пульс.
+    write_lesson(cfg.memory_dir, "feedback_named.md", name="Хороший заголовок",
+                 description="d", topic="workflow")
+    write_lesson(cfg.memory_dir, "feedback_noname.md", description="d", topic="workflow")
+    lessons = CG.collect_lessons(cfg.memory_dir, cfg)
+    diag = CG.run_diagnostics(cfg.memory_dir, lessons, cfg)
+    assert diag["no_name"] == ["feedback_noname.md"]
+    # пустой name — actionable-долг → пульс непуст (всё прочее чисто: тема валидна, ссылок нет)
+    assert CG.format_health_pulse(diag, cfg)
+    # после восстановления заголовка пульс по этому долгу гаснет
+    write_lesson(cfg.memory_dir, "feedback_noname.md", name="Теперь с заголовком",
+                 description="d", topic="workflow")
+    diag2 = CG.run_diagnostics(cfg.memory_dir, CG.collect_lessons(cfg.memory_dir, cfg), cfg)
+    assert diag2["no_name"] == []
+    assert CG.format_health_pulse(diag2, cfg) == ""
+
+
 def test_set_frontmatter_field_idempotent_and_insert() -> None:
     text = "---\nname: x\ndescription: d\n---\nтело\n"
     new, changed = CG.set_frontmatter_field(text, "topic", "workflow")
