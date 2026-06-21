@@ -1,5 +1,5 @@
-<svg width="720" height="288" viewBox="0 0 720 288" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="claude-memory-engine install demo">
-  <rect x="1" y="1" width="718" height="286" rx="12" fill="#0d1117" stroke="#30363d"/>
+<svg width="720" height="314" viewBox="0 0 720 314" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="claude-memory-engine install demo">
+  <rect x="1" y="1" width="718" height="312" rx="12" fill="#0d1117" stroke="#30363d"/>
   <path d="M13 1 H707 A12 12 0 0 1 719 13 V41 H1 V13 A12 12 0 0 1 13 1 Z" fill="#161b22"/>
   <line x1="1" y1="41" x2="719" y2="41" stroke="#30363d"/>
   <circle cx="26" cy="21" r="6" fill="#ff5f56"/>
@@ -8,12 +8,13 @@
   <text x="88" y="26" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" fill="#8b949e">Terminal</text>
   <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14.5">
     <text x="22" y="76"><tspan fill="#7ee787">$</tspan><tspan fill="#c9d1d9"> pip install claude-memory-engine</tspan></text>
-    <text x="22" y="102"><tspan fill="#7ee787">$</tspan><tspan fill="#c9d1d9"> claude-memory init</tspan></text>
-    <text x="22" y="130" fill="#c9d1d9">claude-memory init → my-project</text>
-    <text x="22" y="154" fill="#8b949e">  engine (pip):  …/venv/bin/python</text>
-    <text x="22" y="178" fill="#8b949e">  wrapper:       .claude/hooks/cme_hook.sh</text>
-    <text x="22" y="202" fill="#8b949e">  config:        .claude/claude-memory.config.json</text>
-    <text x="22" y="226" fill="#8b949e">  settings.json: +10 hook registration(s)</text>
-    <text x="22" y="256"><tspan fill="#7ee787">✓</tspan><tspan fill="#c9d1d9"> Done. Hooks activate from the next session.</tspan></text>
+    <text x="22" y="102"><tspan fill="#7ee787">$</tspan><tspan fill="#c9d1d9"> cd /path/to/your/project</tspan></text>
+    <text x="22" y="128"><tspan fill="#7ee787">$</tspan><tspan fill="#c9d1d9"> claude-memory init</tspan></text>
+    <text x="22" y="156" fill="#c9d1d9">claude-memory init → my-project</text>
+    <text x="22" y="180" fill="#8b949e">  engine (pip):  …/venv/bin/python</text>
+    <text x="22" y="204" fill="#8b949e">  wrapper:       .claude/hooks/cme_hook.sh</text>
+    <text x="22" y="228" fill="#8b949e">  config:        .claude/claude-memory.config.json</text>
+    <text x="22" y="252" fill="#8b949e">  settings.json: +10 hook registration(s)</text>
+    <text x="22" y="282"><tspan fill="#7ee787">✓</tspan><tspan fill="#c9d1d9"> Done. Hooks activate from the next session.</tspan></text>
   </g>
 </svg>
