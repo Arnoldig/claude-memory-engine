@@ -42,6 +42,8 @@ def merge_settings(settings: Dict, hook_script_abspath: str) -> Tuple[Dict, int]
     Идемпотентно: записи, уже присутствующие (по подстроке `cme_hook.sh <event>`), не
     дублируются. Чужие хуки не трогаются.
     """
+    if not isinstance(settings, dict):
+        settings = {}                       # валидный, но не-объектный JSON → как пустой
     out = json.loads(json.dumps(settings))  # глубокая копия, не мутируем вход
     hooks = out.setdefault("hooks", {})
     added = 0
@@ -77,9 +79,10 @@ def load_settings(path: str) -> Dict:
     if not p.is_file():
         return {}
     try:
-        return json.loads(p.read_text(encoding="utf-8") or "{}")
+        data = json.loads(p.read_text(encoding="utf-8") or "{}")
     except ValueError:
         return {}
+    return data if isinstance(data, dict) else {}  # валидный, но не-объектный JSON → {}
 
 
 def write_settings(path: str, settings: Dict) -> None:
@@ -95,6 +98,70 @@ def install_into_settings(path: str, hook_script_abspath: str) -> int:
     merged, added = merge_settings(load_settings(path), hook_script_abspath)
     write_settings(path, merged)
     return added
+
+
+# Маркеры наших записей — те же, что использует merge для идемпотентности
+# (`cme_hook.sh <event>`). Один источник истины: набор событий из HOOK_REGISTRATIONS.
+_ENGINE_MARKERS: Tuple[str, ...] = tuple(f"cme_hook.sh {ev}" for _, _, ev, _ in HOOK_REGISTRATIONS)
+
+
+def _is_engine_hook(hook: object) -> bool:
+    """Запись хука — наша? Опознаётся по той же подстроке, что добавляет merge_settings."""
+    if not isinstance(hook, dict):
+        return False
+    command = str(hook.get("command", ""))
+    return any(marker in command for marker in _ENGINE_MARKERS)
+
+
+def remove_engine_hooks(settings: Dict) -> Tuple[Dict, int]:
+    """Обратная операция к merge_settings: снять ВСЕ регистрации движка, сохранив чужие.
+
+    Запись опознаётся по тому же маркеру `cme_hook.sh <event>`, что и при установке.
+    Группа (matcher), в которой не осталось хуков из-за нашего удаления, выбрасывается;
+    ключ `hooks` удаляется, если в нём не осталось ни одного события. Чужие хуки и ранее
+    пустые группы не трогаются. Возвращает (новый_settings, число_снятых).
+    """
+    if not isinstance(settings, dict):
+        return {}, 0                        # валидный, но не-объектный JSON → снимать нечего
+    out = json.loads(json.dumps(settings))  # глубокая копия, не мутируем вход
+    hooks = out.get("hooks")
+    if not isinstance(hooks, dict):
+        return out, 0
+    removed = 0
+    for event_name in list(hooks.keys()):
+        groups = hooks.get(event_name)
+        if not isinstance(groups, list):
+            continue
+        kept_groups: List = []
+        for g in groups:
+            if not isinstance(g, dict) or not isinstance(g.get("hooks"), list):
+                kept_groups.append(g)  # чужая/нестандартная запись — не трогаем
+                continue
+            entries = g["hooks"]
+            kept = [h for h in entries if not _is_engine_hook(h)]
+            removed += len(entries) - len(kept)
+            if kept:
+                g["hooks"] = kept
+                kept_groups.append(g)
+            elif not entries:
+                kept_groups.append(g)  # группа была пуста ДО нас — сохраняем как есть
+            # иначе: в группе были только наши хуки — выбрасываем её целиком
+        if kept_groups:
+            hooks[event_name] = kept_groups
+        else:
+            del hooks[event_name]
+    if not hooks:
+        out.pop("hooks", None)
+    return out, removed
+
+
+def uninstall_from_settings(path: str) -> int:
+    """Прочитать settings.json, снять регистрации движка, записать атомарно (если были правки).
+    Возвращает число снятых регистраций (0 — файла нет или наших хуков не было)."""
+    cleaned, removed = remove_engine_hooks(load_settings(path))
+    if removed:
+        write_settings(path, cleaned)
+    return removed
 
 
 def main() -> None:

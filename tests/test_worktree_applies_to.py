@@ -1,6 +1,6 @@
 """applies_to работает одинаково в worktree и вне его (#memory-lib-cutover).
 
-ЧеКи (и любой проект на worktree-per-task) правит файлы внутри
+Проект на worktree-per-task правит файлы внутри
 `<main>/.claude/worktrees/<wt>/…`. Регресс был: (1) матчер релативизировал к главному
 project_root → путь `.claude/worktrees/<wt>/app/x.py` не совпадал с глобом `app/*`;
 (2) pre-edit гейт исключал ЛЮБОЙ `/.claude/` путь, убивая страж в worktree. Эти тесты
@@ -47,7 +47,7 @@ def _setup(tmp_path: Path, glob_spec: str):
     wt = main / ".claude" / "worktrees" / "wt"
     wt.parent.mkdir(parents=True)
     _git(["worktree", "add", "-q", str(wt)], main)
-    mem = tmp_path / "memory"  # память отдельно от репо (как в ЧеКи)
+    mem = tmp_path / "memory"  # память отдельно от репо (как в реальном проекте)
     mem.mkdir()
     (mem / "feedback_app.md").write_text(
         f"---\ndescription: app rules\napplies_to: [{glob_spec}]\n---\n", encoding="utf-8"

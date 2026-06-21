@@ -5,11 +5,11 @@
 уроков по пути файла, авто-обслуживание, страж параллельных правок и страж выбора
 модели суб-агентов. Все проектные значения — в claude_memory.config.MemoryConfig.
 
-Происхождение: извлечено из инструментария проекта ЧеКи (#memory-tooling-library).
+Происхождение: извлечено из инструментария реального рабочего проекта.
 """
 from __future__ import annotations
 
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 from .config import MemoryConfig, get_config, load
 

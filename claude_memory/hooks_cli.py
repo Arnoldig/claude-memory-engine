@@ -183,7 +183,7 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
     # 3) уроки по пути файла (applies_to) — разово на (сессию, файл), вне памяти/.claude.
     # Worktree-aware: служебное .claude/ пропускаем, НО правки проектных файлов в
     # .claude/worktrees/<wt>/ — НЕ служебные, страж по ним обязан срабатывать
-    # (ЧеКи работает из worktree; #memory-lib-cutover). Вне worktree проектные файлы
+    # (проект может работать из worktree). Вне worktree проектные файлы
     # и так не под .claude/ — не задеты.
     norm = file_path.replace("\\", "/")
     in_claude_tooling = "/.claude/" in norm and "/.claude/worktrees/" not in norm
@@ -266,7 +266,7 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
         return ""
     name = p.name
     in_archive = f"/{cfg.archive_dir_name}/" in file_path.replace("\\", "/")
-    # архивные файлы — это и есть архив: ни авто-архива, ни размер-warning (как у ЧеКи)
+    # архивные файлы — это и есть архив: ни авто-архива, ни размер-warning
     if in_archive and cfg.size_warn_skip_archive:
         return ""
     warnings = []

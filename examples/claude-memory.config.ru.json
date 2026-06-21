@@ -12,23 +12,23 @@
     ],
     [
       "infra",
-      "Docker / Infra / Alembic / CI"
+      "Инфраструктура и CI"
     ],
     [
       "security",
-      "Безопасность / auth / CSP"
+      "Безопасность"
     ],
     [
       "legal",
-      "ПДн / payments / legal"
+      "Юридическое"
     ],
     [
       "ui",
-      "UI / шаблоны / чат"
+      "Интерфейс"
     ],
     [
       "audit",
-      "Аудит / shelf-life / проект"
+      "Аудит"
     ],
     [
       "core",
@@ -36,7 +36,7 @@
     ]
   ],
   "no_topic_title": "⚠ Без темы (не попадут в раздел — добавьте `topic:` во frontmatter)",
-  "catalog_preamble": "# ЧеКи — Каталог уроков (читать по запросу)",
+  "catalog_preamble": "# Каталог уроков (читать по запросу)",
   "catalog_auto_start": "<!-- AUTO-INDEX:START — между маркерами правит только catalog_generate.py -->",
   "catalog_auto_end": "<!-- AUTO-INDEX:END -->",
   "watched_dirs": [

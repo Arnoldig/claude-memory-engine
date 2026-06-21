@@ -140,8 +140,8 @@
   "precedent_archive_days": 30,
   "marker_archive_days": 7,
   "archive_dir_name": "archive",
-  "precedent_keyword": "Прецедент",
-  "precedent_pointer": "перенесён в",
+  "precedent_keyword": "Precedent",
+  "precedent_pointer": "moved to",
   "staleness_skip_dirs": [
     ".git",
     ".venv",

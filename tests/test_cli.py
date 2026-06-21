@@ -145,3 +145,70 @@ def test_doctor_clean_config(tmp_path, monkeypatch):
         assert cli.main(["doctor"]) == 0
     finally:
         cfgmod.reset_cache()
+
+
+def test_uninstall_removes_deployed_files_and_keeps_lessons(tmp_path):
+    project, memory = tmp_path / "proj", tmp_path / "mem"
+    assert _init(project, memory) == 0
+    claude = project / ".claude"
+    wrapper = claude / "hooks" / "cme_hook.sh"
+    config = claude / "claude-memory.config.json"
+    settings = claude / "settings.json"
+    lesson = memory / "feedback_demo.md"               # урок в памяти — трогать нельзя
+    lesson.write_text("demo", encoding="utf-8")
+
+    assert cli.main(["uninstall", str(project)]) == 0
+
+    assert not wrapper.exists()                         # обёртка удалена
+    assert not config.exists()                          # конфиг удалён
+    assert not any("cme_hook.sh" in c for c in _settings_commands(settings))  # наши хуки сняты
+    assert lesson.exists()                              # уроки не тронуты
+    assert memory.is_dir()
+
+
+def test_uninstall_preserves_foreign_hooks(tmp_path):
+    project, memory = tmp_path / "proj", tmp_path / "mem"
+    claude = project / ".claude"
+    claude.mkdir(parents=True)
+    settings = claude / "settings.json"
+    settings.write_text(
+        json.dumps({"hooks": {"UserPromptSubmit": [
+            {"matcher": "", "hooks": [{"type": "command", "command": "bash /other/foo.sh"}]}
+        ]}}),
+        encoding="utf-8",
+    )
+    assert _init(project, memory) == 0
+    assert cli.main(["uninstall", str(project)]) == 0
+    cmds = _settings_commands(settings)
+    assert "bash /other/foo.sh" in cmds                 # чужой хук уцелел
+    assert not any("cme_hook.sh" in c for c in cmds)    # наши сняты
+
+
+def test_uninstall_removes_vendored_engine(tmp_path):
+    # имитируем вариант A: вшитую копию движка в .claude/memory_engine
+    project, memory = tmp_path / "proj", tmp_path / "mem"
+    _init(project, memory)
+    engine = project / ".claude" / "memory_engine" / "claude_memory"
+    engine.mkdir(parents=True)
+    (engine / "__init__.py").write_text("", encoding="utf-8")
+    assert cli.main(["uninstall", str(project)]) == 0
+    assert not (project / ".claude" / "memory_engine").exists()
+
+
+def test_uninstall_on_clean_project_is_safe(tmp_path, capsys):
+    project = tmp_path / "proj"
+    project.mkdir()
+    assert cli.main(["uninstall", str(project)]) == 0
+    assert "nothing to remove" in capsys.readouterr().out
+
+
+def test_uninstall_tolerates_non_object_files(tmp_path):
+    # settings.json и config.json — валидный JSON, но не объект: uninstall не падает
+    project, memory = tmp_path / "proj", tmp_path / "mem"
+    _init(project, memory)
+    claude = project / ".claude"
+    (claude / "settings.json").write_text("[]", encoding="utf-8")
+    (claude / "claude-memory.config.json").write_text("[1, 2, 3]", encoding="utf-8")
+    assert cli.main(["uninstall", str(project)]) == 0
+    assert not (claude / "hooks" / "cme_hook.sh").exists()        # обёртка удалена
+    assert not (claude / "claude-memory.config.json").exists()    # «странный» конфиг удалён
