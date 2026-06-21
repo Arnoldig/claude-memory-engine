@@ -3,6 +3,13 @@
 # чтобы опубликованный архив был самодостаточным (вариант A install.sh, примеры, лицензия).
 include LICENSE
 include README.md
+include README.en.md
+include CHANGELOG.md
+include CHANGELOG.en.md
+include CONTRIBUTING.md
+include CONTRIBUTING.en.md
+include SECURITY.md
+include SECURITY.en.md
 include install.sh
 include MANIFEST.in
 recursive-include examples *.json
