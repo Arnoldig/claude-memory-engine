@@ -153,6 +153,11 @@ class MemoryConfig:
     precedent_archive_days: int = 30      # прецеденты старше → в архив
     marker_archive_days: int = 7          # session-маркеры старше → в архив
     archive_dir_name: str = "archive"     # подкаталог архива внутри memory_dir
+    # Срок хранения архивных уроков (месяцев): урок-файл в archive_dir_name с полем
+    # `archived_on: YYYY-MM-DD` старше N месяцев → кандидат на удаление (показывается в
+    # _stale_pending на SessionStart; удаление — командой archive_prune с бэкапом). 0 — выкл
+    # (по умолчанию: чужим проектам фичу не навязываем). Память НЕ самоудаляется — решает человек.
+    archive_stale_months: int = 0
 
     # — авто-архив прецедентов (memory_archive) —
     # Ключевое слово карточки-прецедента и фраза-указатель «перенесён». Дефолты

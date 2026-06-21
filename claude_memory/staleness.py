@@ -24,8 +24,52 @@ from .config import MemoryConfig, get_config
 from .messages import msg
 
 _REVERIFY_RE = re.compile(r"^[ \t]*reverify_after:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
+_ARCHIVED_RE = re.compile(r"^[ \t]*archived_on:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
 _DESC_RE = re.compile(r"^description:\s*(.*)$", re.MULTILINE)
 STALE_FILE = "_stale_pending.md"
+
+
+def _months_elapsed(a: datetime.date, today: datetime.date) -> int:
+    """Полных месяцев между датами (целое). today раньше a → отрицательное."""
+    m = (today.year - a.year) * 12 + (today.month - a.month)
+    if today.day < a.day:
+        m -= 1
+    return m
+
+
+def scan_archive_stale(
+    cfg: Optional[MemoryConfig] = None, today: Optional[datetime.date] = None
+) -> List[Tuple[str, str, int, str]]:
+    """Архивные уроки с истёкшим сроком хранения → [(archived_on, имя, мес_в_архиве, описание)].
+
+    Кандидат = файл в `cfg.archive_dir_name` (рекурсивно) с полем `archived_on: YYYY-MM-DD`,
+    пролежавший ≥ `cfg.archive_stale_months` месяцев. Поле обязательно → файлы-агрегаты
+    (precedents/markers/audits без `archived_on`) НЕ попадают. `archive_stale_months<=0` → выкл,
+    пустой список. Только формирует список — удаление делает человек (archive_prune)."""
+    cfg = cfg or get_config()
+    today = today or datetime.date.today()
+    n = cfg.archive_stale_months
+    if not n or n <= 0:
+        return []
+    arc_root = os.path.join(cfg.memory_dir, cfg.archive_dir_name)
+    out: List[Tuple[str, str, int, str]] = []
+    for mf in sorted(glob.glob(os.path.join(arc_root, "**", "*.md"), recursive=True)):
+        fm = _frontmatter(mf)
+        if not fm:
+            continue
+        m = _ARCHIVED_RE.search(fm)
+        if not m:
+            continue
+        try:
+            a = datetime.date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+        elapsed = _months_elapsed(a, today)
+        if elapsed >= n:
+            dm = _DESC_RE.search(fm)
+            out.append((a.isoformat(), os.path.basename(mf), elapsed, dm.group(1).strip() if dm else ""))
+    out.sort()
+    return out
 
 
 def _repo_files(cfg: MemoryConfig) -> List[str]:
@@ -104,12 +148,13 @@ def write_pending(
     stale: Optional[List[Tuple[str, str, str]]] = None,
     broken: Optional[List[Tuple[str, List[str]]]] = None,
     today: Optional[datetime.date] = None,
+    archived: Optional[List[Tuple[str, str, int, str]]] = None,
 ) -> bool:
     """Пишет `_stale_pending.md` (или удаляет, если долга нет). Возвращает True, если файл записан."""
     cfg = cfg or get_config()
     today = today or datetime.date.today()
     out_path = Path(cfg.memory_dir) / STALE_FILE
-    if not stale and not broken:
+    if not stale and not broken and not archived:
         if out_path.exists():
             try:
                 out_path.unlink()
@@ -129,6 +174,14 @@ def write_pending(
             for d, name, desc in stale
         ]
         lines.append("")
+    if archived:
+        lines.append(msg(cfg, "staleness.pending_file.archive_section_header"))
+        lines += [
+            msg(cfg, "staleness.pending_file.archive_item", name=name, d=d, months=months, desc=desc)
+            for d, name, months, desc in archived
+        ]
+        lines.append(msg(cfg, "staleness.pending_file.archive_hint"))
+        lines.append("")
     if broken:
         lines.append(msg(cfg, "staleness.pending_file.broken_section_header"))
         lines += [
@@ -145,4 +198,5 @@ def run(cfg: Optional[MemoryConfig] = None, today: Optional[datetime.date] = Non
     """Скан + запись. Возвращает True, если есть долг (файл записан)."""
     cfg = cfg or get_config()
     stale, broken = scan(cfg, today)
-    return write_pending(cfg, stale, broken, today)
+    archived = scan_archive_stale(cfg, today)
+    return write_pending(cfg, stale, broken, today, archived)
