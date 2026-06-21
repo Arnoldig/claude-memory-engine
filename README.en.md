@@ -1,13 +1,14 @@
+<div align="center">
+
 # claude-memory-engine
 
-> A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
+A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue)
-![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen)
-![Tests: 200+](https://img.shields.io/badge/tests-200%2B-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 200+](https://img.shields.io/badge/tests-200%2B-brightgreen)
 
 [Русский](README.md) · **English**
+
+</div>
 
 ## What it is
 
@@ -44,6 +45,34 @@ The engine has three layers.
 3. **Data.** The lessons themselves: your knowledge of the project. They are stored separately and are not part of the engine.
 
 Why this split: the first two layers form a universal mechanism that moves to any project, while the third layer holds only your private data. That is why the engine is easy to reuse and even to open-source, while your lessons stay only with you.
+
+Here is what happens on each request: your prompt reaches Claude Code and, through a hook, triggers the engine; the engine picks a lesson from memory with plain code and returns it into the LLM's context; the assistant then answers with the lesson in mind.
+
+```mermaid
+flowchart LR
+  Q["Your request"] -->|"1. request"| C["Claude Code (your LLM)"]
+  C -->|"2. hook on the request"| E["Engine: picks a lesson with code, not an LLM"]
+  L["Lessons (markdown)"] -.->|"3. source"| E
+  E -->|"4. the right lesson"| C
+  C -->|"5. answer, lesson in mind"| A["Answer"]
+```
+
+The engine also fires on other Claude Code events: before a file edit (path-triggered lesson), at session start and end, and on stop.
+
+## Example output for your LLM assistant
+
+The engine adds a hint with the matching lessons into your LLM assistant's context (you usually do not see it in the chat). It looks roughly like this:
+
+```
+[memory:retrieve] Possibly relevant lessons — read the ones you need BEFORE acting (full list: CATALOG):
+  • by meaning (keyword):
+    - api-error-format: return API errors as {code, message}
+    - db-migrations: new DB fields only via a migration, never by hand
+  • by file path (applies_to):
+    - payment-flow: never change payment status by hand
+```
+
+The lessons in the example are made up for illustration. The labels are English by default; localization is covered in "Configuration".
 
 ## Features
 
@@ -253,12 +282,16 @@ The full list of all options with their default values is in `examples/claude-me
 
 ## Tests and development
 
-The tests need no network, external database, or Docker: only the Python standard library. There are more than 200 tests.
+This section is for those who modify the engine's code: the tests verify that everything still works after changes. A regular user does not need them.
+
+The tests need no network, external database, or Docker: only the Python standard library (200+ tests). Run them like this:
 
 ```
 pip install pytest
 python3 -m pytest
 ```
+
+The first command installs `pytest` (the test runner), the second runs the whole suite and shows that everything is green.
 
 ## Uninstall
 
