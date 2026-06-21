@@ -14,3 +14,4 @@ include install.sh
 include MANIFEST.in
 recursive-include examples *.json
 recursive-include hooks *.sh
+recursive-include assets *.svg

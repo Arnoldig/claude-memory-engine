@@ -1,6 +1,6 @@
 <div align="center">
 
-# claude-memory-engine
+![claude-memory-engine](assets/banner.svg)
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
@@ -33,6 +33,12 @@ claude-memory init
 ```
 
 The first command installs the engine. `cd` takes you into your project folder. `claude-memory init` connects the engine to this project: it creates the config file, the lessons folder, and makes the engine fire at the right moments. That is all: the hints start working from the next Claude Code session. You do not have to configure anything; the defaults work out of the box. How to change settings is described below in "Configuration".
+
+<div align="center">
+
+![Installing claude-memory-engine](assets/install-demo.svg)
+
+</div>
 
 ## How it works
 
