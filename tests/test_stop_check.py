@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from claude_memory import stop_check as SC
-from conftest import write_lesson
+from conftest import write_lesson, RU_EN_CLOSE_PATTERN
 
 AGE = 14400
 
@@ -65,6 +65,40 @@ def test_extract_closed_task_numeric_and_slug(cfg) -> None:
     assert SC.extract_closed_task("fix: Closes #58", p) == "58"
     assert SC.extract_closed_task("docs: Fixes #memory-lib-cutover", p) == "memory-lib-cutover"
     assert SC.extract_closed_task("just a normal commit", p) is None
+
+
+def test_extract_closed_task_first_nonempty_group() -> None:
+    # Многогрупповой проектный шаблон: id в РАЗНЫХ группах по ветке (англ. — группа 1,
+    # рус. — группа 2). extract_closed_task берёт первую НЕПУСТУЮ группу, не жёстко группу 1.
+    p = RU_EN_CLOSE_PATTERN
+    assert SC.extract_closed_task("fix: Closes #task-9", p) == "task-9"            # англ. → группа 1
+    assert SC.extract_closed_task(
+        "docs(tracker): #audit-2026-06-28-G2 закрыт — A28 DONE", p
+    ) == "audit-2026-06-28-G2"                                                     # рус. → группа 2
+    assert SC.extract_closed_task("#task-7 закрыта", p) == "task-7"
+    assert SC.extract_closed_task("#task-8 закрыто", p) == "task-8"
+    assert SC.extract_closed_task("#task-10 закрыты", p) == "task-10"
+    assert SC.extract_closed_task("feat: ordinary work, no closure", p) is None
+    # фикс-коммит «#id — …» без слова закрытия НЕ распознаётся как закрытие
+    assert SC.extract_closed_task(
+        "fix(payment): #audit-2026-06-28-G2 — превью без кеша", p
+    ) is None
+
+
+def test_extract_closed_task_russian_branch_is_narrow() -> None:
+    # Рус. ветка узкая (`закрыт[аоы]?\b`): отглагольные формы НЕ считаются закрытием.
+    # Регресс-замок к red-team: `закры\w*` ловил бы их и давал ложные блок-напоминания.
+    p = RU_EN_CLOSE_PATTERN
+    assert SC.extract_closed_task("#A28-1 закрытие обсудим позже", p) is None
+    assert SC.extract_closed_task("#A28-2 закрытость интерфейса важна", p) is None
+    assert SC.extract_closed_task("обсудили, #A28-3 закрывать пока НЕ будем", p) is None
+    assert SC.extract_closed_task("#A28-4 закрытый вопрос", p) is None
+    assert SC.extract_closed_task("#A28-5 закрывается автоматически при деплое", p) is None
+
+
+def test_extract_closed_task_no_group_pattern_is_safe() -> None:
+    # Шаблон без capture-групп не должен падать (раньше m.group(1) → IndexError) — None.
+    assert SC.extract_closed_task("Closes #task-9", r"closes #[\w-]+") is None
 
 
 def test_task_lesson_recorded_in_lesson_file(cfg) -> None:
@@ -131,3 +165,13 @@ def test_closure_reminder_detects_closes_in_body(cfg, tmp_path) -> None:
     assert "Closes #task-9" in SC.last_commit_msg(str(repo))  # %B вернул тело
     msg = SC.closure_reminder(cfg, str(repo))
     assert msg and "task-9" in msg
+
+
+def test_closure_reminder_detects_russian_form(cfg, tmp_path) -> None:
+    # Рус. «#id закрыт» БЕЗ «Closes» — тоже закрытие (проектный шаблон с двумя ветками).
+    # Регресс-замок к реальному пропуску закрытия #audit-2026-06-28-G2 (коммит b2f91b1).
+    cfg2 = replace(cfg, task_close_pattern=RU_EN_CLOSE_PATTERN)
+    repo = tmp_path / "repo"; repo.mkdir()
+    _git_commit(repo, "docs(tracker): #audit-2026-06-28-G2 закрыт — A28 DONE")
+    msg = SC.closure_reminder(cfg2, str(repo))
+    assert msg and "task-close-gate" in msg and "audit-2026-06-28-G2" in msg

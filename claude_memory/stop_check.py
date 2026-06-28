@@ -97,14 +97,24 @@ def should_remind(cfg: Optional[MemoryConfig], cwd: str, now_ts: float) -> Optio
 # ── Привратник закрытия задачи (Closes #N без записанного урока про задачу) ──────
 
 def extract_closed_task(commit_msg: str, pattern: str) -> Optional[str]:
-    """Номер закрываемой задачи из коммита по шаблону (группа 1) или None."""
+    """Номер закрываемой задачи из коммита по шаблону, или None.
+
+    Возвращает ПЕРВУЮ непустую capture-группу совпадения — не жёстко группу 1.
+    Зачем: разные формы закрытия ставят id по РАЗНЫЕ стороны ключевого слова, и
+    одной capture-группой обе не покрыть (англ. «Closes #id» — id ПОСЛЕ слова;
+    рус. «#id закрыт» — id ДО слова). Шаблон-альтернатива кладёт id в РАЗНЫЕ группы
+    по ветке, первая непустая = сработавшая ветка. Для одногруппового шаблона
+    (дефолт) первая непустая группа и есть группа 1 → поведение не меняется; шаблон
+    без групп больше не падает (None вместо IndexError на m.group(1))."""
     if not commit_msg:
         return None
     try:
         m = re.search(pattern, commit_msg)
     except re.error:
         return None
-    return m.group(1) if m else None
+    if not m:
+        return None
+    return next((g for g in m.groups() if g), None)
 
 
 def task_lesson_recorded(cfg: MemoryConfig, task_id: str) -> bool:

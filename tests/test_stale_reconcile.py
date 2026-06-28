@@ -9,7 +9,7 @@ from pathlib import Path
 
 from claude_memory import stale_reconcile as SR
 from claude_memory import staleness
-from conftest import write_lesson
+from conftest import write_lesson, RU_EN_CLOSE_PATTERN
 
 SID = "sess-1"
 
@@ -105,6 +105,19 @@ def test_blocks_once_then_passes(cfg, tmp_path) -> None:
     assert "task-9" in msg1 and "feedback_stale.md" in msg1
     # разовость по (сессия, sha коммита): повтор → None
     assert SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path)) is None
+
+
+def test_reconcile_reminder_detects_russian_closure(cfg, tmp_path) -> None:
+    # страж устаревших уроков срабатывает и на русской форме закрытия «#id закрыт» БЕЗ «Closes»
+    # (проектный шаблон с двумя ветками). Регресс-замок к пропуску #audit-2026-06-28-G2 (b2f91b1).
+    cfg2 = replace(cfg, stale_reconcile_gate=True, task_close_pattern=RU_EN_CLOSE_PATTERN)
+    repo = tmp_path / "repo"; repo.mkdir()
+    _git_commit(repo, "docs(tracker): #audit-2026-06-28-G2 закрыт — A28 DONE")
+    m = SR.applies_marker_path("s", "/proj/app/x.py", str(tmp_path))
+    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_stale.md"])
+    msg1 = SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path))
+    assert msg1 and "stale-reconcile-gate" in msg1
+    assert "audit-2026-06-28-G2" in msg1 and "feedback_stale.md" in msg1
 
 
 def test_related_lessons_in_message(cfg, tmp_path) -> None:

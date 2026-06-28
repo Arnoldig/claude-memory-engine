@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.2] — 2026-06-28
+### Fixed
+- `extract_closed_task` now returns the FIRST non-empty capture group of the match instead of hard-coding group 1, letting a project's `task_close_pattern` recognize task closure across DIFFERENT phrasings where the id sits on either side of the keyword. English `Closes #id` puts the id AFTER the keyword, while a localized form such as Russian `#id закрыт` puts it BEFORE — one capture group cannot cover both. The library default stays English (generic); a project supplies the form it needs via its own `task_close_pattern`. A pattern with no groups also no longer crashes (None instead of IndexError). Found on a real task close written in the Russian form `#id закрыт` (no `Closes`): both `closure_reminder` and `stale_reconcile` silently never fired. Second fix to closure detection after the `%B` fix in v0.7.1 (commit body).
+
 ## [0.7.1] — 2026-06-28
 ### Fixed
 - The task-close gates (`closure_reminder` and the stale-lesson guard `stale_reconcile`) now detect `Closes #N` in the commit BODY, not only the subject (`%B` instead of `%s` in `last_commit_msg`). Previously, with `Closes #N` in the body (as GitHub recognizes it), both gates silently never fired. Found by dogfooding on a real task close.
