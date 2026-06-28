@@ -182,6 +182,13 @@ class MemoryConfig:
     # (id — число ИЛИ слаг: `#58`, `#memory-lib-cutover`). Группа 1 = номер задачи.
     task_close_pattern: str = r"(?i)\b(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
 
+    # — страж устаревших уроков (stale_reconcile, Stop + SessionEnd): opt-in —
+    # На закрытии задачи (коммит по task_close_pattern) ОДИН раз показать уроки,
+    # привязанные к файлам, которые сессия правила и которые сама НЕ актуализировала, —
+    # «не устарели ли?». Плюс бэкстоп: те же кандидаты в _stale_pending на SessionEnd.
+    # False по умолчанию — чужим проектам не навязываем (нужны applies_to-привязки уроков).
+    stale_reconcile_gate: bool = False
+
     # — проектные строки-напоминания на SessionStart (печатаются в контекст как есть) —
     # Дефолт пуст; проект задаёт операционные ноты (напр. как логиниться в dev).
     session_start_notes: Tuple[str, ...] = ()

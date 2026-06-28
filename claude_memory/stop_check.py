@@ -48,6 +48,13 @@ def last_commit_msg(cwd: str) -> str:
     return _git(cwd, "%s")
 
 
+def last_commit_sha(cwd: str) -> str:
+    """Полный sha последнего git-коммита в cwd ("" если не git / нет коммитов / ошибка).
+
+    Нужен stale_reconcile для разовости нуджа по (сессия, закрывающий коммит)."""
+    return _git(cwd, "%H")
+
+
 def _git(cwd: str, fmt: str, as_int: bool = False):
     try:
         out = subprocess.check_output(

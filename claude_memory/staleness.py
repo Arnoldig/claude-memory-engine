@@ -149,12 +149,17 @@ def write_pending(
     broken: Optional[List[Tuple[str, List[str]]]] = None,
     today: Optional[datetime.date] = None,
     archived: Optional[List[Tuple[str, str, int, str]]] = None,
+    reconcile: Optional[dict] = None,
 ) -> bool:
-    """Пишет `_stale_pending.md` (или удаляет, если долга нет). Возвращает True, если файл записан."""
+    """Пишет `_stale_pending.md` (или удаляет, если долга нет). Возвращает True, если файл записан.
+
+    reconcile — {урок -> [файлы]} кандидатов «показан на правке, не актуализирован»
+    (бэкстоп stale_reconcile: показывается на следующем старте на случай сессии без
+    закрывающего коммита)."""
     cfg = cfg or get_config()
     today = today or datetime.date.today()
     out_path = Path(cfg.memory_dir) / STALE_FILE
-    if not stale and not broken and not archived:
+    if not stale and not broken and not archived and not reconcile:
         if out_path.exists():
             try:
                 out_path.unlink()
@@ -167,6 +172,14 @@ def write_pending(
         msg(cfg, "staleness.pending_file.preamble", date=today.isoformat()),
         "",
     ]
+    if reconcile:
+        lines.append(msg(cfg, "staleness.pending_file.reconcile_section_header"))
+        lines += [
+            msg(cfg, "staleness.pending_file.reconcile_item",
+                lesson=lesson, files=", ".join(os.path.basename(f) for f in files if f))
+            for lesson, files in sorted(reconcile.items())
+        ]
+        lines.append("")
     if stale:
         lines.append(msg(cfg, "staleness.pending_file.stale_section_header"))
         lines += [
@@ -194,9 +207,16 @@ def write_pending(
     return True
 
 
-def run(cfg: Optional[MemoryConfig] = None, today: Optional[datetime.date] = None) -> bool:
-    """Скан + запись. Возвращает True, если есть долг (файл записан)."""
+def run(
+    cfg: Optional[MemoryConfig] = None,
+    today: Optional[datetime.date] = None,
+    reconcile: Optional[dict] = None,
+) -> bool:
+    """Скан + запись. Возвращает True, если есть долг (файл записан).
+
+    reconcile — кандидаты stale_reconcile (бэкстоп): {урок -> [файлы]}, прокидываются в
+    отдельную секцию _stale_pending. ev_session_end вычисляет их по меткам сессии."""
     cfg = cfg or get_config()
     stale, broken = scan(cfg, today)
     archived = scan_archive_stale(cfg, today)
-    return write_pending(cfg, stale, broken, today, archived)
+    return write_pending(cfg, stale, broken, today, archived, reconcile)

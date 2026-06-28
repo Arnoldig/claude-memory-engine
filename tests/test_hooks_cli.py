@@ -1,10 +1,10 @@
 """Тесты диспетчера хук-логики (раньше не покрывался — здесь и поймался hash()-баг)."""
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 from claude_memory import hooks_cli as H
+from claude_memory import stale_reconcile as SR
 from conftest import write_lesson
 
 
@@ -23,15 +23,16 @@ def test_applies_gate_fires_then_dedups(cfg, tmp_path) -> None:
     assert second is None  # разовость на (сессию, файл)
 
 
-def test_applies_marker_uses_stable_sha256(cfg, tmp_path) -> None:
-    """Регресс-замок к BLOCKER: маркер именуется СТАБИЛЬНЫМ sha256, не hash() (рандом per-process)."""
+def test_applies_marker_stable_path_and_stores_lessons(cfg, tmp_path) -> None:
+    """Регресс-замок к BLOCKER: метка именуется СТАБИЛЬНЫМ sha256 (не hash()), а её тело
+    хранит имена показанных уроков — их собирает stale_reconcile на закрытии задачи."""
     write_lesson(cfg.memory_dir, "feedback_app.md", description="d", applies_to="[app/*.py]")
     target = f"{cfg.project_root}/app/x.py"
     td = str(tmp_path / "tmp")
     H.ev_pre_edit_guard(_edit_event(target), cfg, "sess1", td)
-    expected_digest = hashlib.sha256(target.encode("utf-8")).hexdigest()
-    expected = Path(td) / f"{H._APPLIES_MARKER}sess1" / expected_digest
-    assert expected.exists()  # имя маркера детерминировано → дедуп переживёт смену процесса
+    marker = SR.applies_marker_path("sess1", target, td)
+    assert marker.exists()  # имя детерминировано → дедуп переживёт смену процесса
+    assert SR.gather_shown("sess1", td) == {"feedback_app.md": {target}}
 
 
 def test_session_marker_format_denied(cfg, tmp_path) -> None:
@@ -83,9 +84,9 @@ def test_agent_guard_via_dispatcher(cfg, tmp_path) -> None:
     assert r is not None and "model" in r
 
 
-def test_session_end_writes_stale(cfg) -> None:
+def test_session_end_writes_stale(cfg, tmp_path) -> None:
     write_lesson(cfg.memory_dir, "feedback_old.md", description="d", reverify_after="2026-01-01")
-    H.ev_session_end(cfg)
+    H.ev_session_end(cfg, "s", str(tmp_path / "tmp"))
     stale = Path(cfg.memory_dir) / "_stale_pending.md"
     assert stale.exists() and "feedback_old.md" in stale.read_text(encoding="utf-8")
 
@@ -99,7 +100,7 @@ def test_session_start_surfaces_stale(cfg) -> None:
 
 
 def test_stop_event_non_git_is_none(cfg, tmp_path) -> None:
-    assert H.ev_stop(cfg, str(tmp_path / "nope"), now_ts=10_000_000_000) is None
+    assert H.ev_stop(cfg, str(tmp_path / "nope"), 10_000_000_000, "s", str(tmp_path / "tmp")) is None
 
 
 def test_applies_to_cli_mode(cfg, tmp_path, monkeypatch, capsys) -> None:

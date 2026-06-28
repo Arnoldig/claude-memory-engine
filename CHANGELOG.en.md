@@ -4,6 +4,12 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-06-28
+### Added
+- Stale-lesson guard at task close (`stale_reconcile`, opt-in `stale_reconcile_gate`, off by default). On a closing commit (`Closes #N`), Stop shows ONCE the lessons attached to files you edited this session but did NOT update — asking "are they stale?" (fix / mark stale / replace). A semantic list (offline search over the edited files plus the commit subject) is appended to catch related lessons with no path binding. A repeat Stop passes (one-shot block). The same candidates are written as a section in `_stale_pending.md` as a SessionEnd backstop. Fail-open: any error, or inability to write the one-shot marker, degrades to not blocking.
+### Changed
+- The applies-gate marker (path-triggered lessons shown before an edit) now stores the names of the shown lessons — the stale-lesson guard collects them at task close.
+
 ## [0.6.0] — 2026-06-21
 ### Added
 - `claude-memory uninstall` — removes the engine from a project (hook registrations, wrapper, config, and the vendored copy for the git install); your lessons are not touched.

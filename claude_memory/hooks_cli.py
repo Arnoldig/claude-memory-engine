@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import datetime
-import hashlib
 import json
 import os
 import sys
@@ -34,6 +33,7 @@ from . import (
     precedent_index,
     self_check,
     session_marker_guard,
+    stale_reconcile,
     staleness,
     stop_check,
     subagent_efficiency_log,
@@ -42,8 +42,6 @@ from . import (
 from .applies_to import find_lessons_for_path, format_lines
 from .config import MemoryConfig, get_config
 from .messages import msg
-
-_APPLIES_MARKER = "claude-applies-gate-"  # маркер «урок по пути показан» (сессия+файл)
 
 
 def _read_event() -> dict:
@@ -188,19 +186,16 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
     norm = file_path.replace("\\", "/")
     in_claude_tooling = "/.claude/" in norm and "/.claude/worktrees/" not in norm
     if not in_claude_tooling and not in_memory:
-        # sha256 (НЕ встроенный hash()): hash() строк рандомизируется per-process
-        # (PYTHONHASHSEED) → каждый запуск хука = свой процесс = другое имя маркера →
-        # разовость «раз на файл за сессию» сломалась бы (как в memory_concurrency.marker_path).
-        digest = hashlib.sha256(os.path.abspath(file_path).encode("utf-8")).hexdigest()
-        marker = Path(tmpdir) / f"{_APPLIES_MARKER}{session_id or 'nosess'}" / digest
+        # запомнить правленый проектный файл (с уроками или без) — для смыслового поиска
+        # связанных уроков на закрытии задачи (stale_reconcile.related_lessons).
+        stale_reconcile.record_edited_file(session_id, file_path, tmpdir)
+        marker = stale_reconcile.applies_marker_path(session_id, file_path, tmpdir)
         if not marker.exists():
             matches = find_lessons_for_path(file_path, cfg)
             if matches:
-                try:
-                    marker.parent.mkdir(parents=True, exist_ok=True)
-                    marker.write_text("1", encoding="utf-8")
-                except OSError:
-                    pass
+                # метку обогащаем именами показанных уроков — stale_reconcile собирает их
+                # на закрытии задачи как кандидатов «показан, но не актуализирован».
+                stale_reconcile.write_applies_marker(marker, file_path, [n for n, _ in matches])
                 return (
                     msg(cfg, "applies_to.gate.header")
                     + format_lines(matches)
@@ -210,7 +205,8 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
 
 
 def ev_post_record(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str) -> None:
-    """PostToolUse Read|Write|Edit|MultiEdit: запомнить on-disk версию файла памяти (CAS)."""
+    """PostToolUse Read|Write|Edit|MultiEdit на файле памяти: запомнить on-disk версию (CAS)
+    и, если это ПРАВКА урока, отметить «урок тронут в этой сессии» (для stale_reconcile)."""
     tool_input = event.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         return
@@ -218,10 +214,16 @@ def ev_post_record(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str)
     if not file_path:
         return
     try:
-        if os.path.abspath(file_path).startswith(os.path.abspath(cfg.memory_dir)):
-            memory_concurrency.record_seen(session_id, file_path, tmpdir)
+        in_memory = os.path.abspath(file_path).startswith(os.path.abspath(cfg.memory_dir))
     except (OSError, ValueError):
         return
+    if not in_memory:
+        return
+    memory_concurrency.record_seen(session_id, file_path, tmpdir)
+    # правка (не чтение) файла-урока → пометить тронутым: stale_reconcile исключит его из
+    # кандидатов «показан, но не актуализирован».
+    if str(event.get("tool_name") or "") in ("Write", "Edit", "MultiEdit"):
+        stale_reconcile.record_edited_lesson(session_id, file_path, tmpdir)
 
 
 def _measure(path: Path, unit: str) -> int:
@@ -343,17 +345,29 @@ def ev_pre_compact(cfg: MemoryConfig) -> str:
     return ""
 
 
-def ev_session_end(cfg: MemoryConfig) -> None:
-    """SessionEnd: скан устаревания → `_stale_pending.md` (покажет следующий SessionStart)."""
-    staleness.run(cfg)
+def ev_session_end(cfg: MemoryConfig, session_id: str, tmpdir: str) -> None:
+    """SessionEnd: скан устаревания + бэкстоп stale_reconcile (кандидаты «показан, но не
+    актуализирован») → `_stale_pending.md` (покажет следующий SessionStart)."""
+    reconcile = (
+        stale_reconcile.candidates(session_id, tmpdir)
+        if getattr(cfg, "stale_reconcile_gate", False) else None
+    )
+    staleness.run(cfg, reconcile=reconcile or None)
 
 
-def ev_stop(cfg: MemoryConfig, cwd: str, now_ts: float) -> Optional[str]:
+def ev_stop(
+    cfg: MemoryConfig, cwd: str, now_ts: float, session_id: str, tmpdir: str
+) -> Optional[str]:
     """Stop: причина блокировки завершения или None.
 
-    Сначала точечный привратник закрытия задачи (коммит `Closes #N` без урока про
-    эту задачу), затем общий (свежий коммит без записанного позже урока)."""
-    return stop_check.closure_reminder(cfg, cwd) or stop_check.should_remind(cfg, cwd, now_ts)
+    По убыванию приоритета: привратник закрытия задачи (коммит `Closes #N` без урока про
+    задачу) → разовый страж устаревших уроков (показаны на правках, но не актуализированы)
+    → общий (свежий коммит без записанного позже урока)."""
+    return (
+        stop_check.closure_reminder(cfg, cwd)
+        or stale_reconcile.reconcile_reminder(cfg, cwd, session_id, tmpdir)
+        or stop_check.should_remind(cfg, cwd, now_ts)
+    )
 
 
 # ── Диспетчер ────────────────────────────────────────────────────────────────
@@ -400,10 +414,10 @@ def main() -> None:
         elif event_name == "pre-compact":
             _emit_system_message(ev_pre_compact(cfg))
         elif event_name == "session-end":
-            ev_session_end(cfg)
+            ev_session_end(cfg, session_id, tmpdir)
         elif event_name == "stop-check":
             # Stop-протокол: блокировка через JSON {"continue": false, "stopReason": …} в stdout.
-            reason = ev_stop(cfg, os.getcwd(), time.time())
+            reason = ev_stop(cfg, os.getcwd(), time.time(), session_id, tmpdir)
             if reason:
                 print(json.dumps({"continue": False, "stopReason": reason}, ensure_ascii=False))
     except SystemExit:
