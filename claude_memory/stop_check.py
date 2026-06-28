@@ -44,8 +44,14 @@ def last_commit_ts(cwd: str) -> int:
 
 
 def last_commit_msg(cwd: str) -> str:
-    """Тема последнего git-коммита в cwd ("" если не git / нет коммитов / ошибка)."""
-    return _git(cwd, "%s")
+    """ПОЛНОЕ сообщение последнего git-коммита (тема + тело, `%B`) в cwd ("" если не git /
+    нет коммитов / ошибка).
+
+    Именно `%B`, не `%s` (только тема): `Closes #N` часто кладут в ТЕЛО коммита (GitHub так
+    и распознаёт авто-закрытие). С `%s` привратники закрытия (`closure_reminder` и
+    `stale_reconcile.reconcile_reminder`) молча НЕ срабатывали бы на body-based закрытие.
+    Поймано dogfood'ом на закрытии #memory-stale-lesson-guard (2026-06-28)."""
+    return _git(cwd, "%B")
 
 
 def last_commit_sha(cwd: str) -> str:

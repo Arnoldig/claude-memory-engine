@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-06-28
+### Fixed
+- The task-close gates (`closure_reminder` and the stale-lesson guard `stale_reconcile`) now detect `Closes #N` in the commit BODY, not only the subject (`%B` instead of `%s` in `last_commit_msg`). Previously, with `Closes #N` in the body (as GitHub recognizes it), both gates silently never fired. Found by dogfooding on a real task close.
+
 ## [0.7.0] — 2026-06-28
 ### Added
 - Stale-lesson guard at task close (`stale_reconcile`, opt-in `stale_reconcile_gate`, off by default). On a closing commit (`Closes #N`), Stop shows ONCE the lessons attached to files you edited this session but did NOT update — asking "are they stale?" (fix / mark stale / replace). A semantic list (offline search over the edited files plus the commit subject) is appended to catch related lessons with no path binding. A repeat Stop passes (one-shot block). The same candidates are written as a section in `_stale_pending.md` as a SessionEnd backstop. Fail-open: any error, or inability to write the one-shot marker, degrades to not blocking.

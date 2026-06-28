@@ -114,3 +114,20 @@ def test_closure_reminder_non_closing_commit_is_none(cfg, tmp_path) -> None:
     repo = tmp_path / "repo"; repo.mkdir()
     _git_commit(repo, "feat: ordinary work, no closure")
     assert SC.closure_reminder(cfg, str(repo)) is None
+
+
+def test_closure_reminder_detects_closes_in_body(cfg, tmp_path) -> None:
+    # `Closes #N` в ТЕЛЕ коммита (не в теме) — тоже закрытие: last_commit_msg использует %B,
+    # не %s (регресс-замок к dogfood-багу #memory-stale-lesson-guard).
+    repo = tmp_path / "repo"; repo.mkdir()
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, env=env)
+    (repo / "f.txt").write_text("x", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, env=env)
+    # тема БЕЗ Closes, тело — С Closes (второй -m)
+    subprocess.run(["git", "commit", "-q", "-m", "feat: фича", "-m", "Closes #task-9"],
+                   cwd=repo, check=True, env=env)
+    assert "Closes #task-9" in SC.last_commit_msg(str(repo))  # %B вернул тело
+    msg = SC.closure_reminder(cfg, str(repo))
+    assert msg and "task-9" in msg
