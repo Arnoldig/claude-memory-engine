@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.4] — 2026-06-29
+### Changed
+- CI: bumped the actions in `.github/workflows/publish.yml` to the majors that run natively on Node 24 — `actions/checkout@v4 → @v7` and `actions/setup-python@v5 → @v6`. GitHub deprecated Node 20 on its runners and was forcing these steps onto Node 24 with a warning at publish time; the bump removes the warning. As of this date these are the current stable majors (checkout v7 released 2026-06-18, setup-python v6.x; both declare `runs.using: node24`). For this trivial usage (checkout with no inputs; setup-python with only `python-version: "3.x"`) the upgrade is drop-in with no behavior change (pip caching in setup-python v6 stays opt-in). No package content changed — this release only exercises the updated workflow and confirms the warning is gone.
+
 ## [0.7.3] — 2026-06-29
 ### Fixed
 - In the default `task_close_pattern`, the left boundary changed from `\b` to a negative lookbehind `(?<![\w-])`. `\b` also matches AFTER a hyphen, so a commit message like `prefixed-closes #10` (or `auto-closes #10`) was falsely read as closing task #10 — `extract_closed_task` returned `10` instead of `None`, and the close gates (`closure_reminder`, `stale_reconcile`) could show a spurious one-shot reminder. The lookbehind still accepts ordinary `Closes #id` / `Fixes #id` (at line start, after a space or a colon) but not `<word>-closes #id`. Found by a red-team check while adding a localized closure form. Affects only the generic default; consumers whose own `task_close_pattern` uses `\b` as the left boundary before the closure keyword (including anyone who copied the old default into their config) should apply the same `\b` → `(?<![\w-])` change.
