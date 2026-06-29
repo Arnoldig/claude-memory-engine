@@ -180,7 +180,11 @@ class MemoryConfig:
     task_close_lesson_gate: bool = True
     # Шаблон коммита-закрытия. По умолчанию — стандарт GitHub `Closes/Fixes #<id>`
     # (id — число ИЛИ слаг: `#58`, `#memory-lib-cutover`). Группа 1 = номер задачи.
-    task_close_pattern: str = r"(?i)\b(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
+    # Граница слева — негативный lookbehind `(?<![\w-])`, а НЕ `\b`: `\b` срабатывает и
+    # после дефиса, из-за чего `prefixed-closes #10` / `auto-closes #10` ложно читались бы
+    # как закрытие #10. Lookbehind пропускает `Closes #id` в начале строки, после пробела
+    # или двоеточия, но не `<слово>-closes #id`. Найдено red-team-проверкой.
+    task_close_pattern: str = r"(?i)(?<![\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
 
     # — страж устаревших уроков (stale_reconcile, Stop + SessionEnd): opt-in —
     # На закрытии задачи (коммит по task_close_pattern) ОДИН раз показать уроки,

@@ -67,6 +67,29 @@ def test_extract_closed_task_numeric_and_slug(cfg) -> None:
     assert SC.extract_closed_task("just a normal commit", p) is None
 
 
+def test_extract_closed_task_hyphen_prefix_not_closure(cfg) -> None:
+    # RED-TEAM (#stale-reconcile-ru-closure): дефис перед словом закрытия — НЕ закрытие.
+    # Прежняя граница `\b` срабатывала и после дефиса → `prefixed-closes #10` ложно читался
+    # как закрытие #10. Негативный lookbehind `(?<![\w-])` в дефолте это убирает.
+    p = cfg.task_close_pattern
+    assert SC.extract_closed_task("prefixed-closes #10", p) is None
+    assert SC.extract_closed_task("auto-closes #10", p) is None
+    assert SC.extract_closed_task("v0.7-fixes #42", p) is None
+    # контроль: легитимные закрытия по-прежнему распознаются (в начале строки и после слова)
+    assert SC.extract_closed_task("fix: Closes #58", p) == "58"
+    assert SC.extract_closed_task("Fixes #memory-lib-cutover", p) == "memory-lib-cutover"
+
+
+def test_extract_closed_task_hyphen_prefix_combined_pattern() -> None:
+    # Тот же фикс в комбинированном проектном шаблоне (англ. + рус. ветки): дефис перед
+    # англ. словом закрытия НЕ закрытие; рус. ветка и легитимные англ. формы не затронуты.
+    p = RU_EN_CLOSE_PATTERN
+    assert SC.extract_closed_task("prefixed-closes #10", p) is None
+    assert SC.extract_closed_task("auto-closes #10", p) is None
+    assert SC.extract_closed_task("fix: Closes #task-9", p) == "task-9"
+    assert SC.extract_closed_task("#task-7 закрыта", p) == "task-7"
+
+
 def test_extract_closed_task_first_nonempty_group() -> None:
     # Многогрупповой проектный шаблон: id в РАЗНЫХ группах по ветке (англ. — группа 1,
     # рус. — группа 2). extract_closed_task берёт первую НЕПУСТУЮ группу, не жёстко группу 1.

@@ -157,7 +157,7 @@
   "stop_lessons_enabled": true,
   "stop_commit_age_limit_seconds": 14400,
   "task_close_lesson_gate": true,
-  "task_close_pattern": "(?i)\\b(?:clos(?:e|es|ed)|fix(?:es|ed)?)\\s+#([\\w-]+)",
+  "task_close_pattern": "(?i)(?<![\\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?)\\s+#([\\w-]+)",
   "session_start_notes": [],
   "messages": {
     "unit.chars": "(example) override any operator string here; English defaults live in claude_memory/messages.py"

@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] — 2026-06-29
+### Fixed
+- In the default `task_close_pattern`, the left boundary changed from `\b` to a negative lookbehind `(?<![\w-])`. `\b` also matches AFTER a hyphen, so a commit message like `prefixed-closes #10` (or `auto-closes #10`) was falsely read as closing task #10 — `extract_closed_task` returned `10` instead of `None`, and the close gates (`closure_reminder`, `stale_reconcile`) could show a spurious one-shot reminder. The lookbehind still accepts ordinary `Closes #id` / `Fixes #id` (at line start, after a space or a colon) but not `<word>-closes #id`. Found by a red-team check while adding a localized closure form. Affects only the generic default; consumers whose own `task_close_pattern` uses `\b` as the left boundary before the closure keyword (including anyone who copied the old default into their config) should apply the same `\b` → `(?<![\w-])` change.
+
 ## [0.7.2] — 2026-06-28
 ### Fixed
 - `extract_closed_task` now returns the FIRST non-empty capture group of the match instead of hard-coding group 1, letting a project's `task_close_pattern` recognize task closure across DIFFERENT phrasings where the id sits on either side of the keyword. English `Closes #id` puts the id AFTER the keyword, while a localized form such as Russian `#id закрыт` puts it BEFORE — one capture group cannot cover both. The library default stays English (generic); a project supplies the form it needs via its own `task_close_pattern`. A pattern with no groups also no longer crashes (None instead of IndexError). Found on a real task close written in the Russian form `#id закрыт` (no `Closes`): both `closure_reminder` and `stale_reconcile` silently never fired. Second fix to closure detection after the `%B` fix in v0.7.1 (commit body).
