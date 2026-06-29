@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.5] — 2026-06-29
+### Changed
+- Packaging: migrated the license metadata in `pyproject.toml` to PEP 639. The `license` field is now an SPDX expression (`license = "Apache-2.0"` instead of the TOML table `{ text = ... }`); the `License :: OSI Approved :: Apache Software License` classifier was removed (under PEP 639 the license is declared only via the `license` field, and the duplicate classifier is deprecated); and the build-requires floor was raised to `setuptools>=77.0.0`, the version that added PEP 639 support. This clears the two `SetuptoolsDeprecationWarning`s at build time (the `project.license` TOML table and license classifiers were deprecated and would stop working by 2027-02-18). Install behavior is unchanged; the license metadata on PyPI is now in the current SPDX format.
+
 ## [0.7.4] — 2026-06-29
 ### Changed
 - CI: bumped the actions in `.github/workflows/publish.yml` to the majors that run natively on Node 24 — `actions/checkout@v4 → @v7` and `actions/setup-python@v5 → @v6`. GitHub deprecated Node 20 on its runners and was forcing these steps onto Node 24 with a warning at publish time; the bump removes the warning. As of this date these are the current stable majors (checkout v7 released 2026-06-18, setup-python v6.x; both declare `runs.using: node24`). For this trivial usage (checkout with no inputs; setup-python with only `python-version: "3.x"`) the upgrade is drop-in with no behavior change (pip caching in setup-python v6 stays opt-in). No package content changed — this release only exercises the updated workflow and confirms the warning is gone.
