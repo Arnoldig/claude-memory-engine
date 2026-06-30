@@ -249,7 +249,7 @@
     "compact.core_over": "{core_file} (горячее ядро): {size} {unit} ({pct}% бюджета {budget}). Перенеси ссылки на уроки в CATALOG.md или запусти /consolidate-memory.",
     "precedent.header_written": "Шапка-предупреждение записана в {filename} (идемпотентно).",
     "precedent.index_written": "Индекс записан: {filename} ({card_count} карточек).",
-    "stale_reconcile.checklist.header": "Память — итоги сессии (покажи пользователю; затем отработай пункты ниже):",
+    "stale_reconcile.checklist.header": "Память — итоги сессии. ПОКАЖИ пользователю весь этот блок дословно — каждую строку и каждый урок ниже, НЕ пересказывай и не сокращай — затем отработай отмеченные пункты:",
     "stale_reconcile.checklist.counts": "Показано уроков при правках: {shown} | актуализировано: {reconciled} | осталось: {remaining}",
     "stale_reconcile.checklist.candidates_header": "⚠ Проверить на устаревание (правил файл, а урок не обновил):",
     "stale_reconcile.checklist.clean": "✓ память: протухших уроков нет",

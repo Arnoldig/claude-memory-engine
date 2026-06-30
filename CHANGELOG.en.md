@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] — 2026-06-30
+### Changed
+- The memory checklist header (`stale_reconcile.checklist.header`) was strengthened: it now explicitly asks the assistant to OUTPUT the whole block to the user VERBATIM (every line and lesson) rather than paraphrase it. Previously the assistant could act on the candidates and summarize the outcome without showing the list itself. Wording only (overridable via `messages`, i.e. translatable to any language); the checklist logic is unchanged.
+
 ## [0.9.0] — 2026-06-30
 ### Added
 - Model-lineup actuality guard (`llm_actuality`, new module) — one guard in place of the two previous model checks. It combines: (1) reactively at `SessionStart` — if the session model is not in the confirmed families, an immediate "unknown model" nudge; (2) on a daily cadence — every `llm_actuality_interval_hours` (default 24) it asks the assistant to verify the model lineup (delegating a quick check to the cheapest model + web search) and record the result. The engine itself stays offline. The result is written by `cme_hook.sh llm-verified` (no change) / `llm-changes "<what changed>" --families <a,b,c>` to a private state file `_llm_registry_state.json` (which throttles the once-a-day ask across sessions and holds the confirmed family list, seeded from `known_model_substrs`). The verification status shows as a line in the close checklist ("LLM actuality: verified <date>" / "⚠ changes …" / "not verified yet").

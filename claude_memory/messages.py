@@ -112,7 +112,7 @@ DEFAULT_MESSAGES = {
     "stale_reconcile.related_header": "Possibly related by meaning (no path binding — also re-check for staleness):",
     "stale_reconcile.related_item": "- {lesson} ({label})",
     "stale_reconcile.reminder": "Stop blocked (once): the commit closes task #{task_id}. Before finishing, re-verify lessons your changes this session may have made STALE. For EACH below: fix it, mark it stale, or replace it with a new lesson if a fix would rewrite the whole thing — or confirm it is still valid. Then finish; a repeat will pass.\nAttached to files you edited but did NOT update:\n{lessons}{related}\n[stale-reconcile-gate]",
-    "stale_reconcile.checklist.header": "Memory — session summary (show the user; then act on the items below):",
+    "stale_reconcile.checklist.header": "Memory — session summary. SHOW THE USER this entire block verbatim — every line and every lesson below, do NOT summarize or shorten it — then act on the flagged items:",
     "stale_reconcile.checklist.counts": "Lessons shown on edits: {shown} | reconciled: {reconciled} | remaining: {remaining}",
     "stale_reconcile.checklist.candidates_header": "⚠ Re-verify for staleness (you edited the file but did NOT update the lesson):",
     "stale_reconcile.checklist.clean": "✓ memory: no stale lessons to reconcile",
