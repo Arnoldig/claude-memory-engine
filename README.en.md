@@ -100,7 +100,7 @@ The lessons in the example are made up for illustration. The labels are English 
 - At the end of work the engine gently reminds you to record a lesson if none has been written after a fresh commit (especially when the commit closes a task).
 - To re-verify lessons for staleness, write a close phrase at the end of a session (e.g. "Туши свет" or "Done"): the engine replies with a session memory checklist — which lessons surfaced during edits but were not updated, related-by-meaning lessons, and which guards are on. Write this phrase at the end of every session: it is what triggers the check (if you forget, the engine records the debt and reminds you at the next session start). This keeps the memory in sync with the code.
 - It prevents accidentally launching a helper sub-agent on the most expensive model and keeps a log of such launches.
-- It warns if the session model is unknown or the list of known models has not been re-checked for a long time.
+- It warns if the session model is unknown, and once a day asks you to re-verify the model lineup (any new/deactivated models) — the result lands in the close checklist.
 - It checks the config file at startup and catches typos before they break anything.
 
 **Flexibility**
@@ -122,7 +122,7 @@ The engine ships several "guards" — small automatic checks. They fire at diffe
 
 **Lesson count.** When the number of lessons exceeds a threshold, a hint to check for exact duplicates appears at startup (not to "merge" — that loses detail). On, threshold `500`; `0` disables.
 
-**Model registry.** At startup it warns if the session model is not in the known list (default: the current Claude families: `opus`, `sonnet`, `haiku`, `fable`); when a new model ships you get a one-time nudge, after which you update the list. The reactive check is on by default. A separate periodic "re-verify the lineup" reminder is enabled by a date in `model_registry_verified_on` (off by default).
+**Model lineup actuality.** Combines two checks. Reactively: at startup it warns if the session model is not in the confirmed family list (default `opus`, `sonnet`, `haiku`, `fable`). Daily: once a day it asks the assistant to verify the lineup — any new or deactivated models (the check can be delegated to the cheapest model with web search) — and record the result via `cme_hook.sh llm-verified` / `llm-changes`. The result is kept in a state file and shown as a line in the close checklist. On by default (`llm_actuality_enabled`; cadence `llm_actuality_interval_hours`, 24h).
 
 **Parallel sessions.** If another session changed a memory file you are about to edit, the engine asks you to re-read it so edits do not overwrite each other. Always on.
 
@@ -169,7 +169,7 @@ A table for those who will read or extend the code: which feature is implemented
 | Stale-lessons checklist on the close phrase | `stale_reconcile` |
 | Guard against the expensive model for sub-agents | `subagent_model_guard` |
 | Sub-agent delegation log | `subagent_efficiency_log` |
-| Reminder to re-check the model registry | `model_registry_guard` |
+| Model lineup actuality (reactive + daily) | `llm_actuality` |
 | Config self-check | `self_check` |
 
 **Flexibility**

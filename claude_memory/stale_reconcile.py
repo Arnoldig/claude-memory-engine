@@ -257,7 +257,7 @@ def _guard_states(cfg: MemoryConfig) -> Tuple[List[str], List[str]]:
         ("stale_reconcile.guard.archive_age", (getattr(cfg, "archive_stale_months", 0) or 0) > 0),
         ("stale_reconcile.guard.lesson_count", (getattr(cfg, "lesson_count_warn", 0) or 0) > 0),
         ("stale_reconcile.guard.model_registry",
-         bool(getattr(cfg, "known_model_substrs", ()) or getattr(cfg, "model_registry_verified_on", None))),
+         bool(getattr(cfg, "llm_actuality_enabled", False) or getattr(cfg, "known_model_substrs", ()))),
     ]
     on = [msg(cfg, key) for key, active in guards if active]
     off = [msg(cfg, key) for key, active in guards if not active]
@@ -304,6 +304,10 @@ def build_session_checklist(
         lines.append(rel.lstrip("\n"))
     lines.append(msg(cfg, "stale_reconcile.checklist.shelf_pending"
                           if _shelf_has_pending(cfg) else "stale_reconcile.checklist.shelf_clean"))
+    from .llm_actuality import checklist_line as _llm_line  # ленивый импорт: статус сверки линейки
+    llm = _llm_line(cfg)
+    if llm:
+        lines.append(llm)
     on, off = _guard_states(cfg)
     lines.append(msg(cfg, "stale_reconcile.checklist.guards_on", guards=", ".join(on) or "—"))
     lines.append(msg(cfg, "stale_reconcile.checklist.guards_off", guards=", ".join(off) or "—"))

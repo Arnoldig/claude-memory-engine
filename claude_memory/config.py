@@ -132,6 +132,14 @@ class MemoryConfig:
     model_registry_verified_on: Optional[str] = None
     model_registry_max_age_days: int = 60
 
+    # — страж актуальности LLM (llm_actuality, SessionStart + чек-лист) —
+    # Суточная просьба ассистенту сверить линейку моделей (делегировать дешёвой модели +
+    # веб-поиск); итог пишется командой llm-verified/llm-changes в _llm_registry_state.json
+    # (он же троттлит «раз в сутки» между сессиями и хранит подтверждённый список семейств —
+    # сид из known_model_substrs). Реактивная «незнакомая модель» — оттуда же. False → выкл.
+    llm_actuality_enabled: bool = True
+    llm_actuality_interval_hours: int = 24
+
     # — страж формата маркеров (session_marker_guard) —
     marker_limit: int = 200               # макс. длина однострочного session-маркера
 

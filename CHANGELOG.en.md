@@ -4,6 +4,13 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-06-30
+### Added
+- Model-lineup actuality guard (`llm_actuality`, new module) — one guard in place of the two previous model checks. It combines: (1) reactively at `SessionStart` — if the session model is not in the confirmed families, an immediate "unknown model" nudge; (2) on a daily cadence — every `llm_actuality_interval_hours` (default 24) it asks the assistant to verify the model lineup (delegating a quick check to the cheapest model + web search) and record the result. The engine itself stays offline. The result is written by `cme_hook.sh llm-verified` (no change) / `llm-changes "<what changed>" --families <a,b,c>` to a private state file `_llm_registry_state.json` (which throttles the once-a-day ask across sessions and holds the confirmed family list, seeded from `known_model_substrs`). The verification status shows as a line in the close checklist ("LLM actuality: verified <date>" / "⚠ changes …" / "not verified yet").
+- New config fields: `llm_actuality_enabled` (default `true`) and `llm_actuality_interval_hours` (default `24`).
+### Changed
+- At `SessionStart` the model safety net is now provided by `llm_actuality` (reactive check + daily ask) instead of the previous `model_registry_guard` timer keyed on the `model_registry_verified_on` date. The `model_registry_guard` module is kept (its `resolve_model`/`_is_known` and the `model_registry.unknown_model` message are reused by `llm_actuality`); the `model_registry_verified_on` / `model_registry_max_age_days` config is retained for backward compatibility but is no longer used on the default path.
+
 ## [0.8.0] — 2026-06-30
 ### Added
 - The stale-lessons guard (`stale_reconcile`) now fires on a SESSION-CLOSE PHRASE (the `UserPromptSubmit` hook) instead of the closing commit. When the user's message matches the new `session_close_pattern`, a session MEMORY CHECKLIST is injected into context: counts (lessons shown on edits / reconciled / remaining), precise re-verify candidates (you edited a file with an attached lesson but did not update the lesson), a by-meaning related list (now computed WHENEVER there are edited files — even without `applies_to` bindings), shelf-life/archive status, and the list of enabled/disabled guards. The checklist is ALWAYS shown on the close phrase, even when clean ("no stale lessons"). The trigger does not depend on a commit/PR/skill, so it works for projects without a closing command. `/compact` keeps the same `session_id` (markers stay visible); `/clear` is covered by the `SessionEnd` backstop.

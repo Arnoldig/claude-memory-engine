@@ -29,7 +29,7 @@ from . import (
     memory_archive,
     memory_concurrency,
     memory_retrieve,
-    model_registry_guard,
+    llm_actuality,
     precedent_index,
     self_check,
     session_marker_guard,
@@ -103,11 +103,11 @@ def ev_session_start(event: dict, cfg: MemoryConfig) -> str:
             out_lines.append(sc)
     except Exception:  # noqa: BLE001 — fail-open
         pass
-    # подстраховка реестра моделей (неизвестная модель / просрочка сверки) — ноль токенов
+    # страж актуальности LLM: реактивная «незнакомая модель» + суточная просьба сверить линейку
     try:
-        mr = model_registry_guard.run(event, cfg)
-        if mr:
-            out_lines.append(mr)
+        la = llm_actuality.session_start_nudge(event, cfg)
+        if la:
+            out_lines.append(la)
     except Exception:  # noqa: BLE001 — fail-open: подстраховка не должна мешать старту
         pass
     try:
@@ -387,6 +387,20 @@ def main() -> None:
             out = format_lines(find_lessons_for_path(target, cfg))
             if out:
                 print(out)
+        sys.exit(0)
+    if event_name in ("llm-verified", "llm-changes"):
+        # запись итога сверки линейки (моё «подтверждаю» / «есть изменения»). stdin НЕ читаем.
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if event_name == "llm-verified":
+            llm_actuality.record_state(cfg, now, "confirmed")
+        else:
+            note = sys.argv[2] if len(sys.argv) > 2 else "changed"
+            fam = None
+            if "--families" in sys.argv:
+                idx = sys.argv.index("--families")
+                if idx + 1 < len(sys.argv):
+                    fam = [x.strip() for x in sys.argv[idx + 1].split(",") if x.strip()]
+            llm_actuality.record_state(cfg, now, "changes: " + note, fam)
         sys.exit(0)
     data = _read_event()
     session_id = str(data.get("session_id") or "nosess")

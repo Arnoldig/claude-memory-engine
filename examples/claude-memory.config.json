@@ -164,6 +164,8 @@
   "archive_stale_months": 6,
   "lesson_count_warn": 500,
   "known_model_substrs": ["opus", "sonnet", "haiku", "fable"],
+  "llm_actuality_enabled": true,
+  "llm_actuality_interval_hours": 24,
   "session_start_notes": [],
   "messages": {
     "unit.chars": "(example) override any operator string here; English defaults live in claude_memory/messages.py"

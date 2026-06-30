@@ -264,12 +264,18 @@
     "stale_reconcile.guard.archive_age": "срок-архива",
     "stale_reconcile.guard.lesson_count": "счётчик-уроков",
     "stale_reconcile.guard.model_registry": "реестр-моделей",
-    "stale_reconcile.item": "   - {lesson} (правил: {files})"
+    "stale_reconcile.item": "   - {lesson} (правил: {files})",
+    "llm_actuality.verify_ask": "[актуальность-LLM] Линейка моделей не сверялась ≥{interval}ч. Поручи быструю проверку самой дешёвой модели (напр. Haiku) с веб-поиском: актуальны ли известные семейства ({families}) — нет ли новых или отключённых моделей? Затем запиши: `cme_hook.sh llm-verified` (без изменений) или `cme_hook.sh llm-changes \"<что изменилось>\" --families <a,b,c>`. Если что-то изменилось — покажи пользователю, чтобы он выбрал, какие модели использовать.",
+    "llm_actuality.checklist_verified": "Актуальность LLM: сверена {ts}",
+    "llm_actuality.checklist_changes": "⚠ Актуальность LLM: изменения на {ts} — {note}",
+    "llm_actuality.checklist_never": "Актуальность LLM: ещё не сверялась — проверь линейку"
   },
   "lesson_count_warn": 500,
   "known_model_substrs": ["opus", "sonnet", "haiku", "fable"],
   "stale_reconcile_gate": true,
   "session_close_pattern": "Туши свет|\\bDone\\b",
   "session_close_case_sensitive": true,
-  "archive_stale_months": 6
+  "archive_stale_months": 6,
+  "llm_actuality_enabled": true,
+  "llm_actuality_interval_hours": 24
 }
