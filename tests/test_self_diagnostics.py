@@ -112,10 +112,11 @@ def test_pulse_silent_under_threshold(cfg) -> None:
     assert cg.format_health_pulse(diag, cfg2) == ""
 
 
-def test_pulse_count_check_off_by_default(cfg) -> None:
+def test_pulse_count_check_off_when_zero(cfg) -> None:
     from claude_memory import catalog_generate as cg
+    cfg0 = replace(cfg, lesson_count_warn=0)   # дефолт теперь 500 — выключаем явно
     for i in range(5):
         write_lesson(cfg.memory_dir, f"feedback_{i}.md", name=f"урок {i}",
                      description=f"d{i}", topic="workflow")
-    _, diag = cg.build_catalog(cfg.memory_dir, cfg)   # lesson_count_warn=0 (выкл)
-    assert cg.format_health_pulse(diag, cfg) == ""
+    _, diag = cg.build_catalog(cfg.memory_dir, cfg0)
+    assert cg.format_health_pulse(diag, cfg0) == ""

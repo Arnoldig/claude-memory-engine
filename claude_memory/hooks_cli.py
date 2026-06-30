@@ -361,11 +361,12 @@ def ev_stop(
     """Stop: причина блокировки завершения или None.
 
     По убыванию приоритета: привратник закрытия задачи (коммит `Closes #N` без урока про
-    задачу) → разовый страж устаревших уроков (показаны на правках, но не актуализированы)
-    → общий (свежий коммит без записанного позже урока)."""
+    задачу) → общий (свежий коммит без записанного позже урока). Страж устаревших уроков
+    из Stop убран — он теперь срабатывает на фразу закрытия сессии (UserPromptSubmit), см.
+    stale_reconcile.reconcile_on_close. session_id/tmpdir сохранены в сигнатуре для
+    совместимости вызова диспетчера."""
     return (
         stop_check.closure_reminder(cfg, cwd)
-        or stale_reconcile.reconcile_reminder(cfg, cwd, session_id, tmpdir)
         or stop_check.should_remind(cfg, cwd, now_ts)
     )
 
@@ -393,7 +394,15 @@ def main() -> None:
 
     try:
         if event_name == "retrieve":
-            _emit(ev_retrieve(data, cfg))
+            # UserPromptSubmit: релевантные уроки + (если сообщение = фраза закрытия сессии)
+            # чек-лист итогов памяти. Оба идут в контекст одной инъекцией.
+            parts = [
+                ev_retrieve(data, cfg),
+                stale_reconcile.reconcile_on_close(
+                    cfg, str(data.get("prompt") or ""), os.getcwd(), session_id, tmpdir
+                ),
+            ]
+            _emit("\n".join(p for p in parts if p))
         elif event_name == "session-start":
             _emit(ev_session_start(data, cfg))
         elif event_name == "pre-edit-guard":

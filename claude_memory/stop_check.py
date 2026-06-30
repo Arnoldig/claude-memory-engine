@@ -48,8 +48,8 @@ def last_commit_msg(cwd: str) -> str:
     нет коммитов / ошибка).
 
     Именно `%B`, не `%s` (только тема): `Closes #N` часто кладут в ТЕЛО коммита (GitHub так
-    и распознаёт авто-закрытие). С `%s` привратники закрытия (`closure_reminder` и
-    `stale_reconcile.reconcile_reminder`) молча НЕ срабатывали бы на body-based закрытие.
+    и распознаёт авто-закрытие). С `%s` привратник закрытия `closure_reminder` молча НЕ
+    срабатывал бы на body-based закрытие.
     Поймано dogfood'ом на закрытии #memory-stale-lesson-guard (2026-06-28)."""
     return _git(cwd, "%B")
 

@@ -124,3 +124,31 @@ def test_applies_to_cli_mode(cfg, tmp_path, monkeypatch, capsys) -> None:
     finally:
         C.reset_cache()
     assert "feedback_app.md" in capsys.readouterr().out
+
+
+def test_retrieve_dispatch_emits_checklist_on_close_phrase(cfg, tmp_path, monkeypatch, capsys) -> None:
+    """UserPromptSubmit с фразой закрытия → диспетчер печатает чек-лист памяти в stdout."""
+    import io
+    import json
+    import sys
+
+    import pytest
+
+    from claude_memory import config as C
+
+    cf = tmp_path / "c.json"
+    cf.write_text(json.dumps({
+        "memory_dir": cfg.memory_dir, "project_root": cfg.project_root,
+        "session_close_pattern": "Туши свет", "stale_reconcile_gate": True,
+    }), encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_MEMORY_CONFIG", str(cf))
+    monkeypatch.setattr(sys, "argv", ["cme", "retrieve"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"session_id": "s", "prompt": "Туши свет"})))
+    C.reset_cache()
+    try:
+        with pytest.raises(SystemExit):
+            H.main()
+    finally:
+        C.reset_cache()
+    out = capsys.readouterr().out
+    assert "Guards on" in out and "stale-lessons" in out   # чек-лист дошёл до stdout

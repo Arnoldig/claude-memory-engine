@@ -158,6 +158,12 @@
   "stop_commit_age_limit_seconds": 14400,
   "task_close_lesson_gate": true,
   "task_close_pattern": "(?i)(?<![\\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?)\\s+#([\\w-]+)",
+  "stale_reconcile_gate": true,
+  "session_close_pattern": "\\bclose session\\b",
+  "session_close_case_sensitive": false,
+  "archive_stale_months": 6,
+  "lesson_count_warn": 500,
+  "known_model_substrs": ["opus", "sonnet", "haiku", "fable"],
   "session_start_notes": [],
   "messages": {
     "unit.chars": "(example) override any operator string here; English defaults live in claude_memory/messages.py"

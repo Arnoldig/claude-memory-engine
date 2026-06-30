@@ -64,10 +64,13 @@ def test_run_end_to_end(cfg) -> None:
     assert (Path(cfg.memory_dir) / ST.STALE_FILE).exists()
 
 
-def test_archive_stale_disabled_by_default(cfg) -> None:
-    # archive_stale_months=0 (дефолт) → функция выключена, ничего не флагуется
+def test_archive_stale_off_when_zero(cfg) -> None:
+    # archive_stale_months=0 → функция выключена; дефолт (6 мес) — включена
+    cfg0 = replace(cfg, archive_stale_months=0)
     _write_archived(cfg, "feedback_ancient.md", "2020-01-01")
-    assert ST.scan_archive_stale(cfg, today=TODAY) == []
+    assert ST.scan_archive_stale(cfg0, today=TODAY) == []
+    # дефолт теперь 6 мес → тот же древний урок флагуется
+    assert any(n == "feedback_ancient.md" for _, n, _, _ in ST.scan_archive_stale(cfg, today=TODAY))
 
 
 def test_archive_stale_respects_threshold_and_field(cfg) -> None:

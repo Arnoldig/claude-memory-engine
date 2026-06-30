@@ -1,4 +1,4 @@
-"""Страж устаревших уроков на закрытии задачи (Stop) + бэкстоп на SessionEnd.
+"""Страж устаревших уроков: чек-лист памяти на фразу закрытия сессии + бэкстоп на SessionEnd.
 
 Проблема. Когда сессия МЕНЯЕТ поведение/факт, старые уроки, описывавшие прежнее
 состояние, остаются жить и противоречат новому. Хук applies_to показывает их во время
@@ -6,12 +6,13 @@
 сделать ЛОЖНЫМ». Текстовое правило «сначала актуализируй старые» игнорируется
 (рецидив дважды — владелец ловил оба раза).
 
-Решение. Тот же сигнал, но в нужный момент и в нужной рамке. На закрытии задачи (коммит
-Closes #N) ОДИН раз показать список уроков, привязанных к файлам, которые сессия правила
-и которые сама НЕ актуализировала, — с прямым вопросом «не устарели ли?». Идиома разового
-нуджа (как subagent_model_guard): первый Stop после закрывающего коммита блокирует со
-списком, повтор проходит. Плюс бэкстоп: те же кандидаты пишутся в _stale_pending на
-SessionEnd (показ на следующем старте) — на случай сессии без закрывающего коммита.
+Решение. Тот же сигнал, но в надёжный момент и в нужной рамке. Когда сообщение пользователя
+совпадает с session_close_pattern (фраза закрытия сессии), на UserPromptSubmit в контекст
+подаётся чек-лист итогов памяти: уроки, привязанные к правленым файлам и НЕ актуализированные
+(«не устарели ли?»), смысловой список связанных, статус сроков/архива и список включённых/
+выключенных стражей. Это надёжнее прежней привязки к закрывающему коммиту: триггер — явная
+фраза пользователя, не зависит от коммита/PR/скилла. Плюс бэкстоп: те же кандидаты пишутся в
+_stale_pending на SessionEnd (показ на следующем старте) — на случай, если фразу не написали.
 
 Источник сигнала уже есть: pre-edit-guard на каждой правке файла-с-уроками пишет метку
 applies-gate. Здесь метка обогащается именами показанных уроков; плюс ведётся метка «урок
@@ -25,12 +26,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from .config import MemoryConfig, get_config
 from .messages import msg
-from .stop_check import extract_closed_task, last_commit_msg, last_commit_sha
+from .stop_check import last_commit_msg
 
 # Префиксы session-scoped меток в tmpdir. APPLIES_GATE_PREFIX — единый источник имени:
 # его импортирует hooks_cli.ev_pre_edit_guard (чтобы метка «уроки показаны» и сбор
@@ -38,7 +40,6 @@ from .stop_check import extract_closed_task, last_commit_msg, last_commit_sha
 APPLIES_GATE_PREFIX = "claude-applies-gate-"
 EDITED_LESSON_PREFIX = "claude-lesson-edited-"
 EDITED_FILE_PREFIX = "claude-edited-file-"
-RECONCILE_FIRED_PREFIX = "claude-stale-reconcile-"
 
 
 def _sid(session_id: str) -> str:
@@ -171,7 +172,7 @@ def gather_edited(session_id: str, tmpdir: str) -> Set[str]:
 
 def _candidates_from(shown: Dict[str, Set[str]], edited: Set[str]) -> Dict[str, List[str]]:
     """Чистая логика «показан минус тронут» — единый источник и для candidates(), и для
-    reconcile_reminder (последний переиспользует shown/edited ещё и для exclude смыслового
+    build_session_checklist (он переиспользует shown/edited ещё и для exclude смыслового
     списка). {урок -> отсортированный список файлов, которые его триггерили}."""
     return {
         lesson: sorted(f for f in files if f)
@@ -230,44 +231,98 @@ def format_related(related: List[Tuple[str, str]], cfg: MemoryConfig) -> str:
     return "\n\n" + msg(cfg, "stale_reconcile.related_header") + "\n" + "\n".join(items)
 
 
-# ── разовый блок на закрытии задачи (Stop) ────────────────────────────────────
+# ── фраза закрытия сессии + чек-лист итогов (UserPromptSubmit) ─────────────────
 
-def reconcile_reminder(
-    cfg: Optional[MemoryConfig], cwd: str, session_id: str, tmpdir: str
-) -> Optional[str]:
-    """Текст разового блока на закрытии задачи или None. Fail-open.
+def matches_close_phrase(prompt: str, cfg: MemoryConfig) -> bool:
+    """Совпадает ли сообщение пользователя с session_close_pattern. Пустой шаблон,
+    пустой prompt или битый regex → False (fail-open: чек-лист просто не выводится).
+    Регистр учитывается по session_close_case_sensitive."""
+    pattern = getattr(cfg, "session_close_pattern", "") or ""
+    if not pattern or not prompt:
+        return False
+    flags = 0 if getattr(cfg, "session_close_case_sensitive", False) else re.IGNORECASE
+    try:
+        return re.search(pattern, prompt, flags) is not None
+    except re.error:
+        return False
 
-    Срабатывает, только если: фича включена (cfg.stale_reconcile_gate), последний коммит
-    закрывает задачу (task_close_pattern) И есть ТОЧНЫЕ кандидаты (уроки показаны на
-    правках, но сами не тронуты). К точному списку добавляется СОВЕТ — связанные по смыслу
-    уроки (смысловой поиск), которых нет среди показанных/тронутых. Разовость — по
-    (сессия, sha закрывающего коммита): первый Stop блокирует, повтор проходит."""
-    cfg = cfg or get_config()
-    if not getattr(cfg, "stale_reconcile_gate", False):
-        return None
-    task_id = extract_closed_task(last_commit_msg(cwd), cfg.task_close_pattern)
-    if not task_id:
-        return None
+
+def _guard_states(cfg: MemoryConfig) -> Tuple[List[str], List[str]]:
+    """([включённые], [выключенные]) — короткие локализуемые метки стражей по флагам конфига.
+    Чтобы пользователь в чек-листе видел, что реально работает, а что нет."""
+    guards = [
+        ("stale_reconcile.guard.stale_lessons", bool(getattr(cfg, "stale_reconcile_gate", False))),
+        ("stale_reconcile.guard.record_lessons", bool(getattr(cfg, "stop_lessons_enabled", False))),
+        ("stale_reconcile.guard.task_close", bool(getattr(cfg, "task_close_lesson_gate", False))),
+        ("stale_reconcile.guard.archive_age", (getattr(cfg, "archive_stale_months", 0) or 0) > 0),
+        ("stale_reconcile.guard.lesson_count", (getattr(cfg, "lesson_count_warn", 0) or 0) > 0),
+        ("stale_reconcile.guard.model_registry",
+         bool(getattr(cfg, "known_model_substrs", ()) or getattr(cfg, "model_registry_verified_on", None))),
+    ]
+    on = [msg(cfg, key) for key, active in guards if active]
+    off = [msg(cfg, key) for key, active in guards if not active]
+    return on, off
+
+
+def _shelf_has_pending(cfg: MemoryConfig) -> bool:
+    """Есть ли непустой _stale_pending.md (отложенный долг устаревания/архива). Лёгкая
+    проверка одного файла — не запускаем тяжёлый скан проекта на каждую фразу закрытия."""
+    from .staleness import STALE_FILE  # ленивый импорт: константа имени файла долга
+    p = Path(cfg.memory_dir) / STALE_FILE
+    try:
+        return p.is_file() and bool(p.read_text(encoding="utf-8").strip())
+    except OSError:
+        return False
+
+
+def build_session_checklist(
+    cfg: MemoryConfig, cwd: str, session_id: str, tmpdir: str
+) -> str:
+    """Чек-лист итогов памяти для показа пользователю на фразе закрытия. Всегда непустой:
+    счётчики (показано/актуализировано/осталось) + (кандидаты на устаревание | «чисто») +
+    смысловой список (ВСЕГДА при правленых файлах — отвязан от точного) + статус сроков/архива
+    + включённые/выключенные стражи + директива мне (только если есть что чинить)."""
     shown = gather_shown(session_id, tmpdir)
     edited = gather_edited(session_id, tmpdir)
     precise = _candidates_from(shown, edited)
-    if not precise:
-        return None
-    sha = last_commit_sha(cwd) or "nocommit"
-    fired = Path(tmpdir) / f"{RECONCILE_FIRED_PREFIX}{_sid(session_id)}-{sha}"
-    if fired.exists():
-        return None
-    try:
-        fired.parent.mkdir(parents=True, exist_ok=True)
-        fired.write_text("1", encoding="utf-8")
-    except OSError:
-        return None  # не записать метку разовости → fail-open в сторону НЕ-блокировки:
-        # иначе блок повторялся бы на каждом Stop = «стена» (tmp обычно доступен; если нет —
-        # и applies-метки не писались → shown пуст → сюда бы не дошли).
+    remaining = len(precise)
+    reconciled = max(0, len(shown) - remaining)
+
+    lines = [
+        msg(cfg, "stale_reconcile.checklist.header"),
+        msg(cfg, "stale_reconcile.checklist.counts",
+            shown=len(shown), reconciled=reconciled, remaining=remaining),
+    ]
+    if precise:
+        lines.append(msg(cfg, "stale_reconcile.checklist.candidates_header"))
+        lines.append(format_candidates(precise, cfg))
+    else:
+        lines.append(msg(cfg, "stale_reconcile.checklist.clean"))
     related = related_lessons(cfg, cwd, session_id, tmpdir, exclude=set(shown) | edited)
-    return msg(
-        cfg, "stale_reconcile.reminder",
-        task_id=task_id,
-        lessons=format_candidates(precise, cfg),
-        related=format_related(related, cfg),
-    )
+    rel = format_related(related, cfg)
+    if rel:
+        lines.append(rel.lstrip("\n"))
+    lines.append(msg(cfg, "stale_reconcile.checklist.shelf_pending"
+                          if _shelf_has_pending(cfg) else "stale_reconcile.checklist.shelf_clean"))
+    on, off = _guard_states(cfg)
+    lines.append(msg(cfg, "stale_reconcile.checklist.guards_on", guards=", ".join(on) or "—"))
+    lines.append(msg(cfg, "stale_reconcile.checklist.guards_off", guards=", ".join(off) or "—"))
+    if precise:
+        lines.append(msg(cfg, "stale_reconcile.checklist.directive"))
+    return "\n".join(line for line in lines if line)
+
+
+def reconcile_on_close(
+    cfg: Optional[MemoryConfig], prompt: str, cwd: str, session_id: str, tmpdir: str
+) -> Optional[str]:
+    """Чек-лист итогов памяти, если сообщение пользователя — фраза закрытия. Иначе None.
+
+    Заменяет прежний reconcile_reminder (тот зависел от закрывающего коммита и блокировал
+    Stop). Триггер теперь — session_close_pattern на UserPromptSubmit: чек-лист подаётся в
+    контекст (не блокирует), не разовый. Fail-open. Управляется stale_reconcile_gate."""
+    cfg = cfg or get_config()
+    if not getattr(cfg, "stale_reconcile_gate", False):
+        return None
+    if not matches_close_phrase(prompt, cfg):
+        return None
+    return build_session_checklist(cfg, cwd, session_id, tmpdir)

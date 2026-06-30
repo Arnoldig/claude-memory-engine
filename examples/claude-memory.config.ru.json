@@ -248,7 +248,28 @@
     "bloat.precedent_count": "{filename}: {count} оригинальных блоков «Прецедент YYYY-MM-DD» — hook авто-архивирует только >{days} дней, остальные сжать вручную.",
     "compact.core_over": "{core_file} (горячее ядро): {size} {unit} ({pct}% бюджета {budget}). Перенеси ссылки на уроки в CATALOG.md или запусти /consolidate-memory.",
     "precedent.header_written": "Шапка-предупреждение записана в {filename} (идемпотентно).",
-    "precedent.index_written": "Индекс записан: {filename} ({card_count} карточек)."
+    "precedent.index_written": "Индекс записан: {filename} ({card_count} карточек).",
+    "stale_reconcile.checklist.header": "Память — итоги сессии (покажи пользователю; затем отработай пункты ниже):",
+    "stale_reconcile.checklist.counts": "Показано уроков при правках: {shown} | актуализировано: {reconciled} | осталось: {remaining}",
+    "stale_reconcile.checklist.candidates_header": "⚠ Проверить на устаревание (правил файл, а урок не обновил):",
+    "stale_reconcile.checklist.clean": "✓ память: протухших уроков нет",
+    "stale_reconcile.checklist.shelf_clean": "Сроки годности / архив: чисто",
+    "stale_reconcile.checklist.shelf_pending": "Сроки годности / архив: есть отложенный долг (покажется в _stale_pending.md на старте)",
+    "stale_reconcile.checklist.guards_on": "Стражи вкл:  {guards}",
+    "stale_reconcile.checklist.guards_off": "Стражи откл: {guards}",
+    "stale_reconcile.checklist.directive": "Для каждого урока в «Проверить»: актуализируй / помечай неактуальным / замени, затем покажи пользователю итог.",
+    "stale_reconcile.guard.stale_lessons": "устаревшие-уроки",
+    "stale_reconcile.guard.record_lessons": "запись-уроков",
+    "stale_reconcile.guard.task_close": "закрытие-задачи",
+    "stale_reconcile.guard.archive_age": "срок-архива",
+    "stale_reconcile.guard.lesson_count": "счётчик-уроков",
+    "stale_reconcile.guard.model_registry": "реестр-моделей",
+    "stale_reconcile.item": "   - {lesson} (правил: {files})"
   },
-  "lesson_count_warn": 300
+  "lesson_count_warn": 500,
+  "known_model_substrs": ["opus", "sonnet", "haiku", "fable"],
+  "stale_reconcile_gate": true,
+  "session_close_pattern": "Туши свет|\\bDone\\b",
+  "session_close_case_sensitive": true,
+  "archive_stale_months": 6
 }

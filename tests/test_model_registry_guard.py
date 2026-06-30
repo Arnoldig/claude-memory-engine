@@ -28,8 +28,9 @@ def test_known_model_silent(cfg) -> None:
 
 
 def test_unknown_check_off_when_registry_empty(cfg) -> None:
-    # пустой known_model_substrs → проверка выключена (opt-in)
-    assert MR.nudges(cfg, "claude-zeta-9", TODAY) == []
+    # пустой known_model_substrs → проверка выключена (дефолт теперь непуст — задаём явно)
+    cfg0 = replace(cfg, known_model_substrs=())
+    assert MR.nudges(cfg0, "claude-zeta-9", TODAY) == []
 
 
 def test_no_model_no_unknown_nudge(cfg) -> None:

@@ -98,6 +98,7 @@ The lessons in the example are made up for illustration. The labels are English 
 **Safety rails**
 - If two sessions edit the same memory file, the second one gets a gentle "re-read and retry" instead of silently losing edits.
 - At the end of work the engine gently reminds you to record a lesson if none has been written after a fresh commit (especially when the commit closes a task).
+- To re-verify lessons for staleness, write a close phrase at the end of a session (e.g. "Туши свет" or "Done"): the engine replies with a session memory checklist — which lessons surfaced during edits but were not updated, related-by-meaning lessons, and which guards are on. Write this phrase at the end of every session: it is what triggers the check (if you forget, the engine records the debt and reminds you at the next session start). This keeps the memory in sync with the code.
 - It prevents accidentally launching a helper sub-agent on the most expensive model and keeps a log of such launches.
 - It warns if the session model is unknown or the list of known models has not been re-checked for a long time.
 - It checks the config file at startup and catches typos before they break anything.
@@ -106,6 +107,30 @@ The lessons in the example are made up for illustration. The labels are English 
 - Any language: all of the engine's messages can be translated via settings, without touching the code.
 - Works correctly inside a git worktree (a separate working copy of the repository).
 - Zero third-party dependencies: only plain Python is required.
+
+## Memory guards
+
+The engine ships several "guards" — small automatic checks. They fire at different moments, and what is on or off is always visible in the session summary checklist.
+
+**Stale lessons.** When you write a session-close phrase (`session_close_pattern`), the engine shows a session memory checklist: which lessons surfaced during edits and were not updated (in case your change made them false), related-by-meaning lessons, shelf-life status, and the list of enabled/disabled guards. Triggered by the close phrase. On by default.
+
+**Record lessons.** At the end of a turn, if no lesson has been written after a fresh commit, the engine gently reminds you to capture the outcome. Triggered by a commit, checked at turn end. On.
+
+**Task close.** At the end of a turn, if a commit closes a task (`Closes #N`) but no lesson for it exists, the engine asks you to write one. This is a separate guard from "stale lessons", with its own trigger — a commit, not the phrase. On.
+
+**Archive retention.** At session end the engine flags archived lessons older than six months and shows them at the next start as review candidates. The memory never deletes anything itself — that is your call. On (6 months); `0` disables.
+
+**Lesson count.** When the number of lessons exceeds a threshold, a hint to check for exact duplicates appears at startup (not to "merge" — that loses detail). On, threshold `500`; `0` disables.
+
+**Model registry.** At startup it warns if the session model is not in the known list (default: the current Claude families: `opus`, `sonnet`, `haiku`, `fable`); when a new model ships you get a one-time nudge, after which you update the list. The reactive check is on by default. A separate periodic "re-verify the lineup" reminder is enabled by a date in `model_registry_verified_on` (off by default).
+
+**Parallel sessions.** If another session changed a memory file you are about to edit, the engine asks you to re-read it so edits do not overwrite each other. Always on.
+
+**File size and marker format.** The engine warns when the "hot core" or a lesson exceeds its budget, and refuses to write a malformed session marker. On.
+
+**Expensive sub-agent model.** Once per session it warns if a helper sub-agent is launched on the strongest (expensive) model or without an explicit model choice. On.
+
+**Config self-check.** At every startup it checks the config file for typos in message overrides so a broken setting does not silently break things. On.
 
 ## Module map
 
@@ -141,6 +166,7 @@ A table for those who will read or extend the code: which feature is implemented
 | Parallel-session protection | `memory_concurrency` |
 | Single-line session marker format | `session_marker_guard` |
 | Reminder to record a lesson on exit | `stop_check` |
+| Stale-lessons checklist on the close phrase | `stale_reconcile` |
 | Guard against the expensive model for sub-agents | `subagent_model_guard` |
 | Sub-agent delegation log | `subagent_efficiency_log` |
 | Reminder to re-check the model registry | `model_registry_guard` |
@@ -275,6 +301,17 @@ Here `unit.chars` is the word for the size unit when the engine reports memory s
   "project_root": ".",
   "core_budget_bytes": 20000,
   "core_size_unit": "chars"
+}
+```
+
+**Set your own session-close phrase.** When your message matches `session_close_pattern`, the engine shows the session memory checklist and re-verifies lessons for staleness. The default is the English phrase `close session`; here we set our own forms and enable case sensitivity (`session_close_case_sensitive`) so a lowercase "done" inside an ordinary sentence does not trigger it.
+
+```json
+{
+  "memory_dir": "~/.claude/memory",
+  "project_root": ".",
+  "session_close_pattern": "Туши свет|\\bDone\\b",
+  "session_close_case_sensitive": true
 }
 ```
 

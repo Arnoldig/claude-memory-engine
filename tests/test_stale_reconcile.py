@@ -1,5 +1,5 @@
 """Тесты стража устаревших уроков (stale_reconcile): метки сессии, кандидаты,
-смысловой список, разовый блок на закрытии задачи, бэкстоп в _stale_pending."""
+фраза закрытия, чек-лист итогов сессии, смысловой список, бэкстоп в _stale_pending."""
 from __future__ import annotations
 
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from claude_memory import stale_reconcile as SR
 from claude_memory import staleness
-from conftest import write_lesson, RU_EN_CLOSE_PATTERN
+from conftest import write_lesson
 
 SID = "sess-1"
 
@@ -63,116 +63,87 @@ def test_edited_files_gather(tmp_path) -> None:
     ]
 
 
-# ── разовый блок на закрытии задачи ───────────────────────────────────────────
+# ── фраза закрытия сессии ─────────────────────────────────────────────────────
 
-def test_gate_disabled_returns_none(cfg, tmp_path) -> None:
+def test_close_phrase_case_insensitive(cfg) -> None:
+    cfg2 = replace(cfg, session_close_pattern=r"\bdone\b", session_close_case_sensitive=False)
+    assert SR.matches_close_phrase("all DONE here", cfg2)
+    assert SR.matches_close_phrase("done", cfg2)
+
+
+def test_close_phrase_case_sensitive(cfg) -> None:
+    # регистрозависимость убирает ложные срабатывания на строчных формах частых слов
+    cfg2 = replace(cfg, session_close_pattern=r"Туши свет|\bDone\b",
+                   session_close_case_sensitive=True)
+    assert SR.matches_close_phrase("Туши свет", cfg2)
+    assert SR.matches_close_phrase("Done", cfg2)
+    assert not SR.matches_close_phrase("i'm done with auth", cfg2)  # строчная — мимо
+    assert not SR.matches_close_phrase("туши свет", cfg2)
+
+
+def test_close_phrase_empty_or_bad_regex(cfg) -> None:
+    assert not SR.matches_close_phrase("anything", replace(cfg, session_close_pattern=""))
+    assert not SR.matches_close_phrase("", replace(cfg, session_close_pattern="x"))
+    assert not SR.matches_close_phrase("x", replace(cfg, session_close_pattern="("))  # битый regex
+
+
+# ── чек-лист итогов на фразу закрытия ─────────────────────────────────────────
+
+def test_reconcile_on_close_gate_off_returns_none(cfg, tmp_path) -> None:
+    cfg2 = replace(cfg, stale_reconcile_gate=False, session_close_pattern="done")
+    assert SR.reconcile_on_close(cfg2, "done", str(tmp_path), "s", str(tmp_path)) is None
+
+
+def test_reconcile_on_close_non_close_prompt_returns_none(cfg, tmp_path) -> None:
+    cfg2 = replace(cfg, stale_reconcile_gate=True, session_close_pattern="Туши свет")
+    assert SR.reconcile_on_close(cfg2, "обычная реплика", str(tmp_path), "s", str(tmp_path)) is None
+
+
+def test_checklist_always_shown_even_when_clean(cfg, tmp_path) -> None:
+    # на фразу закрытия чек-лист показывается ВСЕГДА, даже когда по всем пунктам пусто
+    cfg2 = replace(cfg, stale_reconcile_gate=True, session_close_pattern="done")
+    out = SR.reconcile_on_close(cfg2, "done", str(tmp_path), "s", str(tmp_path / "tmp"))
+    assert out
+    assert "no stale lessons" in out                       # «чисто»
+    assert "Guards on" in out and "stale-lessons" in out    # список стражей вкл
+    assert "Guards off" in out                              # и выключенных
+
+
+def test_checklist_lists_candidates(cfg, tmp_path) -> None:
+    td = str(tmp_path / "tmp")
+    cfg2 = replace(cfg, stale_reconcile_gate=True, session_close_pattern="done")
+    m = SR.applies_marker_path("s", "/proj/app/auth.py", td)
+    SR.write_applies_marker(m, "/proj/app/auth.py", ["feedback_stale.md"])
+    out = SR.reconcile_on_close(cfg2, "done", str(tmp_path), "s", td)
+    assert out and "feedback_stale.md" in out
+    assert "Re-verify" in out                # заголовок секции кандидатов
+    assert "remaining: 1" in out
+
+
+def test_checklist_counts_reconciled(cfg, tmp_path) -> None:
+    td = str(tmp_path / "tmp")
+    cfg2 = replace(cfg, stale_reconcile_gate=True, session_close_pattern="done")
+    m = SR.applies_marker_path("s", "/proj/app/x.py", td)
+    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_a.md", "feedback_b.md"])
+    SR.record_edited_lesson("s", "/mem/feedback_a.md", td)  # один из двух актуализирован
+    out = SR.reconcile_on_close(cfg2, "done", str(tmp_path), "s", td)
+    assert "reconciled: 1" in out and "remaining: 1" in out
+
+
+def test_checklist_related_decoupled_from_precise(cfg, tmp_path) -> None:
+    # смысловой список появляется даже БЕЗ точных кандидатов (отвязан от precise)
+    td = str(tmp_path)
+    cfg2 = replace(cfg, stale_reconcile_gate=True, session_close_pattern="done",
+                   retrieve_threshold=0.3)
     repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "docs: Closes #task-9")
-    m = SR.applies_marker_path("s", "/proj/app/x.py", str(tmp_path))
-    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_a.md"])
-    # дефолт stale_reconcile_gate=False → None даже при кандидатах
-    assert SR.reconcile_reminder(cfg, str(repo), "s", str(tmp_path)) is None
-
-
-def test_non_closing_commit_returns_none(cfg, tmp_path) -> None:
-    cfg2 = replace(cfg, stale_reconcile_gate=True)
-    repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "feat: ordinary work, no closure")
-    m = SR.applies_marker_path("s", "/proj/app/x.py", str(tmp_path))
-    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_a.md"])
-    assert SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path)) is None
-
-
-def test_no_precise_candidates_returns_none(cfg, tmp_path) -> None:
-    cfg2 = replace(cfg, stale_reconcile_gate=True)
-    repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "docs: Closes #task-9")
-    # показан feedback_a, но он же тронут → точных кандидатов нет → None
-    m = SR.applies_marker_path("s", "/proj/app/x.py", str(tmp_path))
-    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_a.md"])
-    SR.record_edited_lesson("s", "/mem/feedback_a.md", str(tmp_path))
-    assert SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path)) is None
-
-
-def test_blocks_once_then_passes(cfg, tmp_path) -> None:
-    cfg2 = replace(cfg, stale_reconcile_gate=True)
-    repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "docs: Closes #task-9")
-    m = SR.applies_marker_path("s", "/proj/app/x.py", str(tmp_path))
-    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_stale.md"])
-    msg1 = SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path))
-    assert msg1 and "stale-reconcile-gate" in msg1
-    assert "task-9" in msg1 and "feedback_stale.md" in msg1
-    # разовость по (сессия, sha коммита): повтор → None
-    assert SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path)) is None
-
-
-def test_reconcile_reminder_detects_russian_closure(cfg, tmp_path) -> None:
-    # страж устаревших уроков срабатывает и на русской форме закрытия «#id закрыт» БЕЗ «Closes»
-    # (проектный шаблон с двумя ветками). Регресс-замок к пропуску #audit-2026-06-28-G2 (b2f91b1).
-    cfg2 = replace(cfg, stale_reconcile_gate=True, task_close_pattern=RU_EN_CLOSE_PATTERN)
-    repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "docs(tracker): #audit-2026-06-28-G2 закрыт — A28 DONE")
-    m = SR.applies_marker_path("s", "/proj/app/x.py", str(tmp_path))
-    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_stale.md"])
-    msg1 = SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path))
-    assert msg1 and "stale-reconcile-gate" in msg1
-    assert "audit-2026-06-28-G2" in msg1 and "feedback_stale.md" in msg1
-
-
-def test_related_lessons_in_message(cfg, tmp_path) -> None:
-    # связанный по смыслу урок (без applies на тронутый файл) попадает в советный блок
-    cfg2 = replace(cfg, stale_reconcile_gate=True, retrieve_threshold=0.3)
-    repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "feat: marketing consent checkbox Closes #task-9")
-    # точный кандидат (по applies-метке на некий файл)
-    f1 = str(tmp_path / "app" / "x.py")
-    m = SR.applies_marker_path("s", f1, str(tmp_path))
-    SR.write_applies_marker(m, f1, ["feedback_stale.md"])
-    # правленый файл, дающий смысловой запрос
-    SR.record_edited_file("s", str(tmp_path / "app" / "marketing_consent.py"), str(tmp_path))
-    # связанный урок в памяти с пересекающимися токенами «marketing/consent»
+    _git_commit(repo, "feat: marketing consent checkbox")
+    SR.record_edited_file("s", str(tmp_path / "app" / "marketing_consent.py"), td)
     write_lesson(cfg.memory_dir, "feedback_consent_rule.md",
                  name="marketing consent checkbox reappears on bump",
                  description="consent flow rule")
-    msg1 = SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path))
-    assert msg1 and "feedback_consent_rule.md" in msg1
-    assert "feedback_stale.md" in msg1  # точный список тоже на месте
-
-
-def test_related_excludes_shown(cfg, tmp_path) -> None:
-    # урок, который уже в показанных, НЕ дублируется в смысловом списке
-    cfg2 = replace(cfg, stale_reconcile_gate=True, retrieve_threshold=0.3)
-    repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "feat: marketing consent Closes #task-9")
-    f1 = str(tmp_path / "app" / "marketing_consent.py")
-    m = SR.applies_marker_path("s", f1, str(tmp_path))
-    SR.write_applies_marker(m, f1, ["feedback_consent_rule.md"])
-    SR.record_edited_file("s", f1, str(tmp_path))
-    write_lesson(cfg.memory_dir, "feedback_consent_rule.md",
-                 name="marketing consent checkbox", description="consent")
-    msg1 = SR.reconcile_reminder(cfg2, str(repo), "s", str(tmp_path))
-    # урок есть в точном списке ровно один раз; в советном блоке его быть не должно
-    assert msg1 and msg1.count("feedback_consent_rule.md") == 1
-
-
-def test_fail_open_when_fired_marker_unwritable(cfg, tmp_path, monkeypatch) -> None:
-    # если метку разовости записать нельзя — fail-open в сторону НЕ-блокировки (не «стена»)
-    cfg2 = replace(cfg, stale_reconcile_gate=True)
-    repo = tmp_path / "repo"; repo.mkdir()
-    _git_commit(repo, "docs: Closes #task-9")
-    td = str(tmp_path / "tmp")
-    m = SR.applies_marker_path("s", "/proj/app/x.py", td)
-    SR.write_applies_marker(m, "/proj/app/x.py", ["feedback_stale.md"])
-    orig = Path.write_text
-
-    def boom(self, *a, **k):
-        if SR.RECONCILE_FIRED_PREFIX in self.name:
-            raise OSError("no space left")
-        return orig(self, *a, **k)
-
-    monkeypatch.setattr(Path, "write_text", boom)
-    assert SR.reconcile_reminder(cfg2, str(repo), "s", td) is None
+    out = SR.reconcile_on_close(cfg2, "done", str(repo), "s", td)
+    assert out and "feedback_consent_rule.md" in out   # связанный по смыслу (без applies)
+    assert "no stale lessons" in out                    # точных кандидатов нет
 
 
 def test_type_hints_resolve() -> None:
@@ -181,6 +152,7 @@ def test_type_hints_resolve() -> None:
     typing.get_type_hints(SR.related_lessons)
     typing.get_type_hints(SR.format_related)
     typing.get_type_hints(SR._candidates_from)
+    typing.get_type_hints(SR.build_session_checklist)
 
 
 # ── бэкстоп: секция в _stale_pending ──────────────────────────────────────────
