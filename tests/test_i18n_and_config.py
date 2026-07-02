@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import datetime
 import glob
 import re
 from dataclasses import replace
@@ -115,11 +116,15 @@ def test_size_exempt_and_override(cfg) -> None:
 
 
 def test_precedent_count_warn(cfg) -> None:
+    # Даты — относительно сегодня: захардкоженные однажды перешагивают
+    # precedent_archive_days, авто-архив съедает блоки ДО подсчёта и тест протухает
+    # (дата-бомба: упал 2026-07-02 на датах 2026-06-01..03 при пороге 30 дней).
     cfg2 = replace(cfg, feedback_warn_bytes=10 ** 9, precedent_count_warn=3)
-    blocks = "".join(f"**Прецедент 2026-06-0{i}:** разбор\n\n" for i in range(1, 4))
+    days = [datetime.date.today() - datetime.timedelta(days=i) for i in (1, 2, 3)]
+    blocks = "".join(f"**Прецедент {d:%Y-%m-%d}:** разбор\n\n" for d in days)
     (Path(cfg.memory_dir) / "feedback_p.md").write_text(blocks, encoding="utf-8")
     assert "3" in _bloat_file(cfg2, "feedback_p.md")          # ≥3 живых блока
-    two = "".join(f"**Прецедент 2026-06-0{i}:** разбор\n\n" for i in range(1, 3))
+    two = "".join(f"**Прецедент {d:%Y-%m-%d}:** разбор\n\n" for d in days[:2])
     (Path(cfg.memory_dir) / "feedback_p.md").write_text(two, encoding="utf-8")
     assert "Precedent" not in _bloat_file(cfg2, "feedback_p.md")  # 2 блока — без счётчика
 
