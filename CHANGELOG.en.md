@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.2] — 2026-07-02
+### Changed
+- The session-summary memory checklist was reframed from a "snapshot before" to a "report after" (`stale_reconcile.checklist.header` + `.directive`): instead of asking to show the block verbatim (the data went stale right after reconciling the lessons, and verbatim output by the model is not guaranteed — confirmed by a live probe: neither `systemMessage` nor a blocking `reason` is shown to the user in the Claude Code desktop app), the assistant is now instructed to FIRST reconcile every flagged lesson and THEN post the user a final report reflecting the result: an outcome per lesson + the status lines (shelf-life, LLM actuality, guards) with their exact values. Wording only (overridable via `messages`); checklist logic and keys are unchanged.
+
 ## [0.9.1] — 2026-06-30
 ### Changed
 - The memory checklist header (`stale_reconcile.checklist.header`) was strengthened: it now explicitly asks the assistant to OUTPUT the whole block to the user VERBATIM (every line and lesson) rather than paraphrase it. Previously the assistant could act on the candidates and summarize the outcome without showing the list itself. Wording only (overridable via `messages`, i.e. translatable to any language); the checklist logic is unchanged.

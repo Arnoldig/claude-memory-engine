@@ -99,6 +99,18 @@ def test_reconcile_on_close_non_close_prompt_returns_none(cfg, tmp_path) -> None
     assert SR.reconcile_on_close(cfg2, "обычная реплика", str(tmp_path), "s", str(tmp_path)) is None
 
 
+def test_checklist_header_frames_report_after_not_verbatim_snapshot(cfg, tmp_path) -> None:
+    # v0.9.2: заголовок предписывает «сначала отработай, ЗАТЕМ отчёт по результату»,
+    # а НЕ «покажи блок дословно» (снимок до устаревает сразу после актуализации;
+    # дословный показ моделью не гарантирован — живая проверка в приложении Code).
+    cfg2 = replace(cfg, stale_reconcile_gate=True, session_close_pattern="done")
+    out = SR.reconcile_on_close(cfg2, "done", str(tmp_path), "s", str(tmp_path / "tmp"))
+    assert out
+    assert "final memory report" in out       # предписан отчёт-после
+    assert "verbatim" not in out              # дословный снимок-до больше не требуем
+    assert "WORKING DATA" in out              # блок явно помечен как рабочие данные
+
+
 def test_checklist_always_shown_even_when_clean(cfg, tmp_path) -> None:
     # на фразу закрытия чек-лист показывается ВСЕГДА, даже когда по всем пунктам пусто
     cfg2 = replace(cfg, stale_reconcile_gate=True, session_close_pattern="done")
