@@ -87,6 +87,20 @@ def test_archive_stale_respects_threshold_and_field(cfg) -> None:
     assert "feedback_old_arc.md" in body
 
 
+def test_quoted_description_stripped_in_stale_and_archive(cfg) -> None:
+    # description в кавычках → в _stale_pending (просрочка reverify И архив) показывается
+    # БЕЗ кавычек, как в CATALOG/поиске. Раньше staleless снимал только пробелы.
+    write_lesson(cfg.memory_dir, "feedback_rev.md",
+                 description='"просрочено в кавычках"', reverify_after="2026-01-01")
+    stale, _ = ST.scan(cfg, today=TODAY)
+    assert [d for _, n, d in stale if n == "feedback_rev.md"] == ["просрочено в кавычках"]
+    # то же для архивных уроков (scan_archive_stale)
+    _write_archived(cfg, "feedback_arc_q.md", "2025-01-01", desc='"архив в кавычках"')
+    cfg12 = replace(cfg, archive_stale_months=12)
+    arc = ST.scan_archive_stale(cfg12, today=TODAY)
+    assert [d for _, n, _, d in arc if n == "feedback_arc_q.md"] == ["архив в кавычках"]
+
+
 def test_archive_prune_backs_up_then_deletes(cfg) -> None:
     cfg12 = replace(cfg, archive_stale_months=12)
     p = _write_archived(cfg, "feedback_old_arc.md", "2025-01-01")

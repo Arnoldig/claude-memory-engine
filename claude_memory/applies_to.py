@@ -34,6 +34,19 @@ def read_head(path: str, cap: int = 65536) -> str:
         return f.read(cap)
 
 
+def strip_scalar(value: str) -> str:
+    """Очистка скалярного значения frontmatter: пробелы по краям + снятие одного слоя
+    обрамляющих кавычек (`"…"` или `'…'`).
+
+    Единый хелпер вместо копий идиомы `.strip().strip('"').strip("'")` по всем парсерам
+    (catalog_generate.parse_frontmatter, memory_retrieve.read_fields, applies_to,
+    staleness) — чтобы снятие кавычек было ОДИНАКОВЫМ во всех потребителях frontmatter.
+    Раньше `applies_to`/`staleness` снимали только пробелы → `description: "…"` в кавычках
+    показывался с кавычками в «уроках по пути» и `_stale_pending`, но без — в CATALOG и
+    поиске (половины системы расходились в отображении). DRY-инвариант держит их в лаге."""
+    return value.strip().strip('"').strip("'")
+
+
 def _frontmatter(path: str) -> str:
     try:
         head = read_head(path)
@@ -127,7 +140,7 @@ def find_lessons_for_path(
         ):
             continue
         dm = _DESC_RE.search(fm)
-        desc = dm.group(1).strip() if dm else ""
+        desc = strip_scalar(dm.group(1)) if dm else ""
         out.append((os.path.basename(mf), desc))
     return out
 

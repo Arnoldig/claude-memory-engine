@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .applies_to import _applies_globs, _frontmatter
+from .applies_to import _applies_globs, _frontmatter, strip_scalar
 from .config import MemoryConfig, get_config
 from .messages import msg
 
@@ -67,7 +67,7 @@ def scan_archive_stale(
         elapsed = _months_elapsed(a, today)
         if elapsed >= n:
             dm = _DESC_RE.search(fm)
-            out.append((a.isoformat(), os.path.basename(mf), elapsed, dm.group(1).strip() if dm else ""))
+            out.append((a.isoformat(), os.path.basename(mf), elapsed, strip_scalar(dm.group(1)) if dm else ""))
     out.sort()
     return out
 
@@ -128,7 +128,7 @@ def scan(
                 d = datetime.date.fromisoformat(m.group(1))
                 if d < today:
                     dm = _DESC_RE.search(fm)
-                    stale.append((d.isoformat(), name, dm.group(1).strip() if dm else ""))
+                    stale.append((d.isoformat(), name, strip_scalar(dm.group(1)) if dm else ""))
             except ValueError:
                 pass
         if repo_files:

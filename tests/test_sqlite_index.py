@@ -122,6 +122,35 @@ def test_fingerprint_changes_with_each_relevant_param(cfg) -> None:
            MR._params_fingerprint(replace(cfg, stopwords=("b", "a")))
 
 
+# ── Обнуление при смене ВЕРСИИ ЛОГИКИ парсера (не параметров) ─────────────────
+
+def test_fingerprint_changes_with_parser_logic_version(cfg, monkeypatch) -> None:
+    # Смена _PARSER_LOGIC_VERSION (правка кода разбора при тех же параметрах) обязана
+    # менять отпечаток — иначе кэш не заметит не-1:1 правку парсера.
+    fp0 = MR._params_fingerprint(cfg)
+    monkeypatch.setattr(MR, "_PARSER_LOGIC_VERSION", MR._PARSER_LOGIC_VERSION + 1)
+    assert MR._params_fingerprint(cfg) != fp0
+
+
+def test_parser_logic_bump_invalidates_cache(cfg, monkeypatch) -> None:
+    # Полный путь: холодный кэш под текущей версией логики → «правка логики» (bump) →
+    # ensure_schema обязан DELETE строки и записать новый fingerprint (а не отдать стемы
+    # старого парсера по совпавшим mtime/size). Это и есть замена ручного `rm` кэша.
+    _seed(cfg)
+    MR.score_files("kafka", cfg)  # cache built under current logic version
+    with sqlite3.connect(_cache_path(cfg)) as conn:
+        fp_before = conn.execute(
+            "SELECT value FROM meta WHERE key='params_fingerprint'").fetchone()[0]
+    monkeypatch.setattr(MR, "_PARSER_LOGIC_VERSION", MR._PARSER_LOGIC_VERSION + 1)
+    MR.score_files("kafka", cfg)  # тёплый по mtime/size, но версия логики другая → пересбор
+    with sqlite3.connect(_cache_path(cfg)) as conn:
+        fp_after = conn.execute(
+            "SELECT value FROM meta WHERE key='params_fingerprint'").fetchone()[0]
+    assert fp_after != fp_before, "смена версии логики парсера не обнулила кэш"
+    # после пересбора кэш остаётся эквивалентен чистому скану
+    assert MR.score_files("kafka payment", cfg) == MR.score_files("kafka payment", _disabled(cfg))
+
+
 # ── fail-open: выключенный кэш / битая БД ─────────────────────────────────────
 
 def test_disabled_creates_no_db(cfg) -> None:

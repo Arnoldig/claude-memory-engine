@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
+from .applies_to import strip_scalar
 from .config import MemoryConfig, get_config
 from .messages import msg
 
@@ -70,11 +71,11 @@ def parse_frontmatter(text: str) -> Dict[str, str]:
     for key in ("name", "description"):
         m = re.search(rf"^{key}:[ \t]*(.*)$", fm, re.MULTILINE)
         if m:
-            out[key] = m.group(1).strip().strip('"').strip("'")
+            out[key] = strip_scalar(m.group(1))
     for key in ("topic", "subtopic", "reverify_after", "type"):
         m = re.search(rf"^[ \t]*{key}:[ \t]*(.*)$", fm, re.MULTILINE)
         if m:
-            v = m.group(1).strip().strip('"').strip("'")
+            v = strip_scalar(m.group(1))
             if v:
                 out[key] = v
     return out
@@ -383,7 +384,7 @@ def set_frontmatter_field(text: str, key: str, value: str) -> Tuple[str, bool]:
     for i, ln in enumerate(fm):
         m = key_re.match(ln)
         if m:
-            if m.group(1).strip().strip('"').strip("'") == value:
+            if strip_scalar(m.group(1)) == value:
                 return text, False
             fm[i] = f"{key}: {value}"
             return "\n".join(lines[:1] + fm + lines[end:]), True

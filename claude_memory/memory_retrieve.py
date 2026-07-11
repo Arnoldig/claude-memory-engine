@@ -28,7 +28,7 @@ import sys
 from typing import Dict, List, Optional, Tuple
 
 from . import sqlite_index
-from .applies_to import find_lessons_for_path, read_head
+from .applies_to import find_lessons_for_path, read_head, strip_scalar
 from .config import MemoryConfig, get_config
 from .messages import msg
 
@@ -84,7 +84,7 @@ def read_fields(path: str, body_chars: int = 1500):
         # `:[ \t]*` (не `:\s*`) — иначе пустое поле съедает `\n` и хватает следующую строку.
         anchor = "" if top_level else r"[ \t]*"
         m = re.search(rf"^{anchor}{k}:[ \t]*(.*)$", fm, re.MULTILINE)
-        return m.group(1).strip().strip('"').strip("'") if m else ""
+        return strip_scalar(m.group(1)) if m else ""
 
     return field("name", top_level=True), field("description", top_level=True), field("keywords"), body[:body_chars]
 
@@ -106,15 +106,38 @@ def _parse_doc(path: str, cfg: MemoryConfig):
     return is_empty, nstems, dstems, bstems, label
 
 
-def _params_fingerprint(cfg: MemoryConfig) -> str:
-    """Отпечаток параметров токенизации. Смена любого → кэш стемов устарел → обнулить.
+# Версия ЛОГИКИ разбора/токенизации (не её параметров). Входит в _params_fingerprint,
+# поэтому её смена сама обнуляет SQLite-кэш стемов — без ручного `rm _retrieve_cache.*`.
+# ПОДНИМАТЬ на +1 при ЛЮБОМ изменении СЕМАНТИКИ того, как файл-урок превращается в стемы
+# кэша, ВКЛЮЧАЯ транзитивные помощники:
+#   • read_fields — что и откуда читаем из frontmatter/тела;
+#   • applies_to.strip_scalar — ОБЩИЙ хелпер снятия кавычек, которым read_fields чистит
+#     значения полей (DRY с applies_to/staleness). Он назван ЯВНО: правка strip_scalar
+#     ради отображения в applies_to/staleness молча меняет и стемы кэша через read_fields —
+#     тут легче всего забыть бампнуть версию (ровно тот сбой, что константа и ловит);
+#   • tokenize — регэксп токенов, стемминг, отсев;
+#   • _parse_doc — какие поля в какой набор стемов идут, критерий is_empty.
+# Параметры (стем/мин.токен/тело/стоп-слова) покрыты ОТДЕЛЬНЫМИ полями отпечатка ниже —
+# эта константа про смену самого КОДА разбора при неизменных параметрах: тогда mtime/size
+# файлов те же и кэш иначе отдал бы стемы, посчитанные СТАРЫМ парсером (тихо неверный
+# поиск на не-1:1 правке; раньше требовался ручной сброс кэша, см. 0.9.4/0.9.5).
+# (read_head cap=64К в отпечаток НЕ входит — практически неважно: frontmatter < 64К,
+#  тело всё равно режется до body_chars ≪ cap.)
+_PARSER_LOGIC_VERSION = 1
 
-    Покрывает ровно то, что влияет на содержимое стемов: длину стема, минимальный
-    токен, окно тела, набор стоп-слов. body_chars влияет на bstems (сколько тела
-    индексируем). Не включает веса/IDF — они считаются по стемам на лету, кэш их не хранит.
+
+def _params_fingerprint(cfg: MemoryConfig) -> str:
+    """Отпечаток параметров токенизации И версии логики парсера. Смена любого → кэш
+    стемов устарел → обнулить.
+
+    Покрывает ровно то, что влияет на содержимое стемов: версию логики разбора
+    (`_PARSER_LOGIC_VERSION`), длину стема, минимальный токен, окно тела, набор стоп-слов.
+    body_chars влияет на bstems (сколько тела индексируем). Не включает веса/IDF — они
+    считаются по стемам на лету, кэш их не хранит.
     """
     payload = json.dumps(
         {
+            "parser_logic": _PARSER_LOGIC_VERSION,
             "stem": cfg.retrieve_stem,
             "min_token": cfg.retrieve_min_token,
             "body_chars": cfg.retrieve_body_chars,

@@ -4,6 +4,12 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.6] — 2026-07-11
+### Added
+- Parser-logic version in the retriever cache fingerprint (`memory_retrieve._PARSER_LOGIC_VERSION` → `_params_fingerprint`): the fingerprint used to cover only tokenization PARAMETERS (stem/min-token/body window/stopwords), not the parsing LOGIC itself (`read_fields`/`tokenize`/`_parse_doc`). SQLite-cache row freshness is checked by the lesson file's `mtime_ns`+`size`, so a non-1:1 change to the parser CODE with unchanged files and params left the cache serving stems computed by the OLD parser (silently wrong retrieval; 0.9.4/0.9.5 required a manual `rm _retrieve_cache.sqlite3*`). Now bumping `_PARSER_LOGIC_VERSION` by +1 on any parse-semantics change flips the fingerprint → the cache self-invalidates. +2 tests (a version change flips the fingerprint; a bump actually clears the cache row instead of returning old-parser stems).
+### Changed
+- Stripping of surrounding quotes from scalar frontmatter fields is extracted into a single helper `applies_to.strip_scalar`, reused by every parser (`catalog_generate.parse_frontmatter`, `memory_retrieve.read_fields`, `applies_to`, `staleness`) instead of copies of the `.strip().strip('"').strip("'")` idiom. Fixes a mismatch: `applies_to._DESC_RE` and `staleness._DESC_RE` stripped whitespace only → a lesson with a quoted `description: "…"` showed the quotes in path-lessons and `_stale_pending`, but not in CATALOG/search. Display only (no effect on ranking or CATALOG contents). Behavior for unquoted values is 1:1 (255 prior tests green); +3 tests (quote stripping in path-lessons/stale/archive + the helper contract).
+
 ## [0.9.5] — 2026-07-11
 ### Changed
 - Unified the leading anchor for `name`/`description` in the retriever's frontmatter read (`memory_retrieve.read_fields`): search used to read them at ANY indentation (`^[ \t]*`), while the canonical `parse_frontmatter` and `applies_to`/`staleness` accept only top-level (`^`). The mismatch meant an indented `description` would be seen by search but not by the CATALOG index (the two halves of the system disagreed). Aligned to top-level (`^name:`/`^description:`), matching the other parsers. `keywords` stay any-indent — they legitimately live under `metadata:`. Proven 1:1 on the live corpus (0 diffs — no indented `name`/`description` exist); +1 test.

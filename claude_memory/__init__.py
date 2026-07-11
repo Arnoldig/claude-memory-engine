@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-__version__ = "0.9.5"
+__version__ = "0.9.6"
 
 from .config import MemoryConfig, get_config, load
 

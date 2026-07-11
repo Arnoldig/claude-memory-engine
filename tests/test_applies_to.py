@@ -34,3 +34,20 @@ def test_lesson_without_applies_to_ignored(cfg) -> None:
 
 def test_format_lines(cfg) -> None:
     assert A.format_lines([("a.md", "desc"), ("b.md", "")]) == "- a.md: desc\n- b.md"
+
+
+def test_quoted_description_stripped_in_path_lessons(cfg) -> None:
+    # description в кавычках → в «уроках по пути» показывается БЕЗ кавычек, как в CATALOG
+    # и поиске. Раньше applies_to снимал только пробелы → кавычки протекали в вывод
+    # (рассинхрон половин системы, задача DRY-хелпера strip_scalar).
+    write_lesson(cfg.memory_dir, "feedback_q.md",
+                 description='"чат в кавычках"', applies_to="[app/routers/chat.py]")
+    assert A.find_lessons_for_path("app/routers/chat.py", cfg) == [("feedback_q.md", "чат в кавычках")]
+
+
+def test_strip_scalar_removes_one_quote_layer() -> None:
+    # Контракт общего хелпера: trim + снятие ОДНОГО слоя обрамляющих кавычек любого вида.
+    assert A.strip_scalar('  "x"  ') == "x"
+    assert A.strip_scalar("'y'") == "y"
+    assert A.strip_scalar("z") == "z"      # без кавычек → только trim
+    assert A.strip_scalar("") == ""        # пусто → пусто (совместимо с «нет значения»)
