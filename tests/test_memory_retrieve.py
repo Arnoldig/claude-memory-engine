@@ -1,6 +1,8 @@
 """Тесты офлайн-ретривера."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from claude_memory import memory_retrieve as MR
 from conftest import write_lesson
 
@@ -16,6 +18,24 @@ def test_read_fields_empty_name_not_next_line(cfg) -> None:
     name, desc, kw, body = MR.read_fields(str(p))
     assert name == "", f"пустой name → '', а не {name!r}"
     assert desc == "настоящее описание"
+
+
+def test_read_fields_name_description_top_level_only(cfg) -> None:
+    """name/description читаются ТОЛЬКО top-level (как parse_frontmatter); keywords — любой отступ (фикс 0.9.5)."""
+    p = Path(cfg.memory_dir) / "feedback_anchor.md"
+    p.write_text(
+        "---\n"
+        "name: Заголовок\n"
+        "metadata:\n"
+        "  description: вложенное описание\n"   # под metadata → retrieve НЕ берёт (как CATALOG)
+        "  keywords: касса чек возврат\n"        # keywords живут под metadata → берём
+        "---\nтело\n",
+        encoding="utf-8",
+    )
+    name, desc, kw, body = MR.read_fields(str(p))
+    assert name == "Заголовок"
+    assert desc == "", f"вложенный description не должен читаться поиском, получено {desc!r}"
+    assert "касса" in kw, f"вложенные keywords должны читаться, получено {kw!r}"
 
 
 def test_score_ranks_rare_term_higher(cfg) -> None:

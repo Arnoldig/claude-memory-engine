@@ -76,12 +76,17 @@ def read_fields(path: str, body_chars: int = 1500):
     fm = parts[0]
     body = parts[1] if len(parts) > 1 else ""
 
-    def field(k):
-        # `:[ \t]*` не `:\s*` — иначе пустое поле съедает `\n` и хватает следующую строку.
-        m = re.search(rf"^[ \t]*{k}:[ \t]*(.*)$", fm, re.MULTILINE)
+    def field(k, top_level=False):
+        # Ведущий якорь согласован с parse_frontmatter/applies_to/staleness: name и
+        # description — ТОЛЬКО top-level (это поля первого уровня); keywords живут и под
+        # `metadata:` → допускаем любой отступ. Иначе поиск «видел» бы description с
+        # отступом, а указатель CATALOG — нет (рассинхрон половин системы).
+        # `:[ \t]*` (не `:\s*`) — иначе пустое поле съедает `\n` и хватает следующую строку.
+        anchor = "" if top_level else r"[ \t]*"
+        m = re.search(rf"^{anchor}{k}:[ \t]*(.*)$", fm, re.MULTILINE)
         return m.group(1).strip().strip('"').strip("'") if m else ""
 
-    return field("name"), field("description"), field("keywords"), body[:body_chars]
+    return field("name", top_level=True), field("description", top_level=True), field("keywords"), body[:body_chars]
 
 
 def _parse_doc(path: str, cfg: MemoryConfig):

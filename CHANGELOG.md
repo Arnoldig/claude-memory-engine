@@ -4,6 +4,10 @@
 
 Здесь перечислены заметные изменения проекта. Формат по образцу [Keep a Changelog](https://keepachangelog.com/), нумерация версий по [семантическому версионированию](https://semver.org/).
 
+## [0.9.5] — 2026-07-11
+### Изменено
+- Единый ведущий якорь для `name`/`description` при чтении frontmatter ретривером (`memory_retrieve.read_fields`): раньше поиск читал их с ЛЮБЫМ отступом (`^[ \t]*`), а канонический `parse_frontmatter` и `applies_to`/`staleness` — только top-level (`^`). Рассинхрон: `description` с отступом «видел» бы поиск, но НЕ видел бы указатель CATALOG (половины системы расходились). Приведено к единому top-level (`^name:`/`^description:`), как у остальных парсеров. `keywords` остаются с любым отступом — легитимно живут под `metadata:`. Доказано 1:1 на боевом корпусе (0 расхождений — отступных `name`/`description` в корпусе нет); +1 тест.
+
 ## [0.9.4] — 2026-07-11
 ### Исправлено
 - Парсинг frontmatter: у ПУСТОГО значения поля (`name:` или `name: ""` без текста) regex `{key}:\s*(.*)` съедал перенос строки (`\s` матчит `\n`) и захватывал СЛЕДУЮЩУЮ строку frontmatter как значение (пустой `name:` → «topic: …»). Заменено `:\s*` → `:[ \t]*` (только горизонтальный пробел) в 5 парсерах (`catalog_generate.parse_frontmatter` для name/description/topic/subtopic/reverify_after/type, `applies_to._DESC_RE`, `staleness._DESC_RE`, `memory_retrieve.read_fields`). Пустое поле теперь корректно `= ""` (это же чинит незамеченный ранее вариант `no_name` — незакавыченный пустой `name:`). Доказано 1:1 на боевом корпусе (466 уроков двух проектов — 0 расхождений old↔new); +2 теста, падающих на старом коде. Строго-датные regex (`reverify_after`/`archived_on`) и построчный `set_frontmatter_field` не затронуты — безопасны by design.
