@@ -70,6 +70,26 @@ def test_bloat_check_core_over_budget(cfg, tmp_path) -> None:
     assert "budget" in out and cfg.core_file in out  # англ. дефолт; ядро в символах
 
 
+def test_bloat_check_warns_on_empty_name(cfg) -> None:
+    """Запись урока с пустым name → предупреждение в момент записи (не только пульс).
+
+    Реальный кейс обнуления — `name: ""` (с кавычками), как его пишет нормализация frontmatter;
+    parse_frontmatter снимает кавычки → пустая строка (та же семантика, что no_name в пульсе).
+    """
+    p = write_lesson(cfg.memory_dir, "feedback_empty_name.md", name='""', topic="testing", body="тело урока")
+    event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
+    out = H.ev_bloat_check(event, cfg)
+    assert "feedback_empty_name.md" in out
+
+
+def test_bloat_check_silent_on_filled_name(cfg) -> None:
+    """Заполненный name → предупреждения нет."""
+    p = write_lesson(cfg.memory_dir, "feedback_good_name.md", name="Нормальный заголовок урока", topic="testing", body="тело")
+    event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
+    out = H.ev_bloat_check(event, cfg)
+    assert "feedback_good_name.md" not in out
+
+
 def test_session_start_writes_catalog(cfg) -> None:
     write_lesson(cfg.memory_dir, "feedback_a.md", description="a", topic="workflow")
     H.ev_session_start({}, cfg)

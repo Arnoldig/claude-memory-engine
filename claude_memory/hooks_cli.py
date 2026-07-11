@@ -288,6 +288,19 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             )
         except OSError:
             pass
+    # — урок с пустым `name`: заголовок не заполнен/обнулён (name весит ×2 в retrieve) —
+    # ловим В МОМЕНТ записи, а не только в SessionStart-пульсе следующей сессии.
+    if (
+        cfg.lesson_prefixes
+        and any(name.startswith(pref) for pref in cfg.lesson_prefixes)
+        and name not in cfg.size_exempt
+    ):
+        try:
+            raw = p.read_text(encoding="utf-8")
+        except OSError:
+            raw = ""
+        if raw.startswith("---") and not catalog_generate.parse_frontmatter(raw).get("name", "").strip():
+            warnings.append(msg(cfg, "bloat.empty_name", filename=name))
     # — горячее ядро: символы/байты + ранний нудж на core_warn_ratio —
     if name == cfg.core_file:
         size = _measure(p, cfg.core_size_unit)

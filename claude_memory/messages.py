@@ -33,6 +33,7 @@ DEFAULT_MESSAGES = {
     "bloat.core_warn": "[memory] {core_file}: {size} {unit} ({pct}% of budget {budget} {unit}) — approaching the hot-core limit; move lesson links to the catalog.",
     "bloat.lesson_over": "[memory] {filename}: {size} {unit} (> {limit} {unit}) — large lesson file, consider splitting it.",
     "bloat.precedent_count": "[memory] {filename}: {count} original 'Precedent YYYY-MM-DD' blocks — auto-archive only handles >{days}d; compress the rest manually.",
+    "bloat.empty_name": "[memory] {filename}: empty name (blank title) — weakens retrieval (name is weighted x2); restore a descriptive title now (raw edit if the edit tool re-blanks it).",
     "catalog.auto_index_note": "<!-- Index below is built automatically by catalog_generate (updated {today}, {count} lessons). Edits inside the markers will be overwritten — change `topic:`/`description:` in the lesson frontmatter. -->",
     "catalog.written": "{catalog_file} written ({count} lessons).",
     "compact.core_over": "[memory] before compact: {core_file} {size} {unit} ({pct}% of budget {budget} {unit}) — good moment to trim the hot core.",
