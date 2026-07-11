@@ -25,7 +25,7 @@ from .messages import msg
 
 _REVERIFY_RE = re.compile(r"^[ \t]*reverify_after:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
 _ARCHIVED_RE = re.compile(r"^[ \t]*archived_on:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
-_DESC_RE = re.compile(r"^description:\s*(.*)$", re.MULTILINE)
+_DESC_RE = re.compile(r"^description:[ \t]*(.*)$", re.MULTILINE)  # [ \t]* не \s*: пустое поле не хватает следующую строку
 STALE_FILE = "_stale_pending.md"
 
 

@@ -63,12 +63,16 @@ def parse_frontmatter(text: str) -> Dict[str, str]:
     if not text.startswith("---"):
         return out
     fm = text.split("\n---", 1)[0]
+    # После двоеточия — ТОЛЬКО горизонтальный пробел `[ \t]*`, НЕ `\s*`: `\s` матчит и
+    # перенос строки, поэтому у ПУСТОГО значения (`name:` / `name: ""` без текста) `\s*`
+    # съедал `\n` и `(.*)` хватал СЛЕДУЮЩУЮ строку frontmatter как значение (empty `name:`
+    # → «topic: …»). `[ \t]*` останавливается на конце строки → пустое поле = "".
     for key in ("name", "description"):
-        m = re.search(rf"^{key}:\s*(.*)$", fm, re.MULTILINE)
+        m = re.search(rf"^{key}:[ \t]*(.*)$", fm, re.MULTILINE)
         if m:
             out[key] = m.group(1).strip().strip('"').strip("'")
     for key in ("topic", "subtopic", "reverify_after", "type"):
-        m = re.search(rf"^[ \t]*{key}:\s*(.*)$", fm, re.MULTILINE)
+        m = re.search(rf"^[ \t]*{key}:[ \t]*(.*)$", fm, re.MULTILINE)
         if m:
             v = m.group(1).strip().strip('"').strip("'")
             if v:

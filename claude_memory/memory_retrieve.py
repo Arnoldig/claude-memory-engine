@@ -77,7 +77,8 @@ def read_fields(path: str, body_chars: int = 1500):
     body = parts[1] if len(parts) > 1 else ""
 
     def field(k):
-        m = re.search(rf"^[ \t]*{k}:\s*(.*)$", fm, re.MULTILINE)
+        # `:[ \t]*` не `:\s*` — иначе пустое поле съедает `\n` и хватает следующую строку.
+        m = re.search(rf"^[ \t]*{k}:[ \t]*(.*)$", fm, re.MULTILINE)
         return m.group(1).strip().strip('"').strip("'") if m else ""
 
     return field("name"), field("description"), field("keywords"), body[:body_chars]

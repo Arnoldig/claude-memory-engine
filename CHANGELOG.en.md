@@ -4,6 +4,10 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.4] — 2026-07-11
+### Fixed
+- Frontmatter parsing: for an EMPTY field value (`name:` or `name: ""` with no text) the regex `{key}:\s*(.*)` ate the newline (`\s` matches `\n`) and captured the NEXT frontmatter line as the value (empty `name:` → "topic: …"). Replaced `:\s*` → `:[ \t]*` (horizontal whitespace only) in 5 parsers (`catalog_generate.parse_frontmatter` for name/description/topic/subtopic/reverify_after/type, `applies_to._DESC_RE`, `staleness._DESC_RE`, `memory_retrieve.read_fields`). An empty field now correctly yields `""` (this also fixes a previously-missed `no_name` case — an unquoted empty `name:`). Proven 1:1 against the live corpus (466 lessons across two projects — 0 old↔new diffs); +2 tests that fail on the old code. The strict-date regexes (`reverify_after`/`archived_on`) and the per-line `set_frontmatter_field` are untouched — safe by design.
+
 ## [0.9.3] — 2026-07-11
 ### Added
 - Empty-`name` warning at lesson-write time (`bloat.empty_name`, PostToolUse `bloat-check`): writing/editing a lesson file that has frontmatter but a blank `name` now nudges "restore the title" immediately (name is weighted x2 in retrieval) — previously a blank title only surfaced in the next SessionStart pulse. The "empty name" semantics match the `no_name` diagnostic 1:1. The message is overridable via `messages`.

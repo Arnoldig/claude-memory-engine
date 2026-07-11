@@ -16,6 +16,21 @@ def test_parse_frontmatter_toplevel_and_nested() -> None:
     assert fm["topic"] == "legal" and fm["type"] == "feedback"
 
 
+def test_parse_frontmatter_empty_value_does_not_eat_next_line() -> None:
+    """Пустое значение НЕ хватает следующую строку frontmatter (баг `\\s*`-съедает-`\\n`, фикс 0.9.4)."""
+    # unquoted пустой name → "", а topic не «съеден»
+    fm = CG.parse_frontmatter("---\nname:\ntopic: legal\ndescription: X\n---\nтело\n")
+    assert fm.get("name", "") == "", f"пустой name должен быть '', а не {fm.get('name')!r}"
+    assert fm.get("topic") == "legal"
+    assert fm.get("description") == "X"
+    # quoted пустой name (реальный кейс обнуления) → "" тоже
+    fm2 = CG.parse_frontmatter('---\nname: ""\ntopic: legal\n---\nтело\n')
+    assert fm2.get("name", "") == "" and fm2.get("topic") == "legal"
+    # пустой description не хватает вложенную metadata-строку
+    fm3 = CG.parse_frontmatter("---\nname: x\ndescription:\nmetadata:\n  topic: legal\n---\nт\n")
+    assert fm3.get("description", "") == "" and fm3.get("topic") == "legal"
+
+
 def test_render_index_groups_by_topic(cfg) -> None:
     write_lesson(cfg.memory_dir, "feedback_a.md", description="a", topic="workflow")
     write_lesson(cfg.memory_dir, "feedback_b.md", description="b", topic="testing")

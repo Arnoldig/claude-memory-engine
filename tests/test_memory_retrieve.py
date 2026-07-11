@@ -10,6 +10,14 @@ def test_tokenize_stems_and_stopwords(cfg) -> None:
     assert MR.tokenize("the and for x", cfg) == set()                # стоп-слова + короткое
 
 
+def test_read_fields_empty_name_not_next_line(cfg) -> None:
+    """Пустой name НЕ подхватывает description как имя — влияло на ранжирование (фикс 0.9.4)."""
+    p = write_lesson(cfg.memory_dir, "feedback_empty.md", name="", description="настоящее описание", topic="testing")
+    name, desc, kw, body = MR.read_fields(str(p))
+    assert name == "", f"пустой name → '', а не {name!r}"
+    assert desc == "настоящее описание"
+
+
 def test_score_ranks_rare_term_higher(cfg) -> None:
     write_lesson(cfg.memory_dir, "feedback_a.md", name="kafka smz", description="payment kafka")
     write_lesson(cfg.memory_dir, "feedback_b.md", name="payment card", description="payment visa")

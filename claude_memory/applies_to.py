@@ -22,7 +22,7 @@ from typing import List, Optional, Tuple
 from .config import MemoryConfig, get_config
 
 _APPLIES_RE = re.compile(r"^[ \t]*applies_to:[ \t]*(.*)$", re.MULTILINE)
-_DESC_RE = re.compile(r"^description:\s*(.*)$", re.MULTILINE)
+_DESC_RE = re.compile(r"^description:[ \t]*(.*)$", re.MULTILINE)  # [ \t]* не \s*: пустое поле не хватает следующую строку
 
 
 def read_head(path: str, cap: int = 65536) -> str:
