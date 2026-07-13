@@ -4,7 +4,7 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.9.6] — 2026-07-11
+## [0.9.6] — 2026-07-13
 ### Added
 - Parser-logic version in the retriever cache fingerprint (`memory_retrieve._PARSER_LOGIC_VERSION` → `_params_fingerprint`): the fingerprint used to cover only tokenization PARAMETERS (stem/min-token/body window/stopwords), not the parsing LOGIC itself (`read_fields`/`tokenize`/`_parse_doc`). SQLite-cache row freshness is checked by the lesson file's `mtime_ns`+`size`, so a non-1:1 change to the parser CODE with unchanged files and params left the cache serving stems computed by the OLD parser (silently wrong retrieval; 0.9.4/0.9.5 required a manual `rm _retrieve_cache.sqlite3*`). Now bumping `_PARSER_LOGIC_VERSION` by +1 on any parse-semantics change flips the fingerprint → the cache self-invalidates. +2 tests (a version change flips the fingerprint; a bump actually clears the cache row instead of returning old-parser stems).
 ### Changed
