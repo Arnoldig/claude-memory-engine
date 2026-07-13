@@ -336,6 +336,23 @@ python3 -m pytest
 
 The first command installs `pytest` (the test runner), the second runs the whole suite and shows that everything is green.
 
+### Releasing a new version
+
+Publishing to PyPI is **automatic** — it runs when a GitHub Release is published, not on a plain `git push`. Steps:
+
+1. Bump the version in `claude_memory/__init__.py` **and** `pyproject.toml` (two places).
+2. Add an entry to `CHANGELOG.md` (RU) and `CHANGELOG.en.md` (EN).
+3. Commit and push to `main`.
+4. Create the release: `gh release create vX.Y.Z --target main` — then `.github/workflows/publish.yml` runs the tests, builds the package and publishes it to PyPI (Trusted Publishing, no tokens).
+
+A GitHub push does **not** update PyPI by itself (step 4 is required). So you don't forget, enable the reminder hook once in your clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+Then `.githooks/pre-push` checks on push: if the package version has no `vX.Y.Z` tag yet (locally or on origin), it prints a reminder to create the release. The push is not blocked.
+
 ## Uninstall
 
 The engine does not touch your lessons: the lessons folder (`memory_dir`) stays in place on uninstall.

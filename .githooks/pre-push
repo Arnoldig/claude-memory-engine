@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# pre-push: напоминание выпустить пакет на PyPI, если версия ещё НЕ зарелижена.
+#
+# Публикация на PyPI автоматическая: .github/workflows/publish.yml (триггер
+# `on: release published`) сам гоняет тесты → build → publish через Trusted
+# Publishing (OIDC, БЕЗ токена). Значит вручную PyPI обновлять не нужно — нужно
+# СОЗДАТЬ GitHub Release. Легко забыть: код и main уходят на GitHub, а PyPI молча
+# остаётся на старой версии (прецедент: PyPI застрял на 0.9.2 при коде 0.9.6).
+#
+# Логика: если версия пакета (claude_memory/__init__.py) НЕ имеет git-тега vX.Y.Z
+# ни локально, ни на origin — печатаем напоминание. Хук НЕ блокирует push (exit 0).
+# Установка (разово в клоне движка):  git config core.hooksPath .githooks
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$root" ] && [ -f "$root/claude_memory/__init__.py" ] || exit 0
+
+ver="$(sed -n 's/^__version__ = "\([0-9][0-9.]*\)".*/\1/p' "$root/claude_memory/__init__.py" | head -1)"
+[ -n "$ver" ] || exit 0
+tag="v$ver"
+
+# Уже зарелижено? тег есть локально ИЛИ на origin → тихо выходим.
+git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 && exit 0
+git ls-remote --tags --exit-code origin "refs/tags/$tag" >/dev/null 2>&1 && exit 0
+
+# Версия без релиза → напоминаем (stderr; push продолжается).
+printf '\n\033[33m⚠  [pypi-release]\033[0m Версия пакета \033[1m%s\033[0m ещё не выпущена — нет тега %s.\n' "$ver" "$tag" >&2
+printf '   PyPI обновляется САМ при публикации GitHub Release, но релиз надо создать:\n' >&2
+printf '   \033[1mgh release create %s --target main --title "%s — …" --notes-file <notes>\033[0m\n' "$tag" "$tag" >&2
+printf '   (CI .github/workflows/publish.yml прогонит тесты, соберёт и опубликует на PyPI.)\n' >&2
+printf '   Это лишь напоминание — push продолжается.\n\n' >&2
+exit 0
