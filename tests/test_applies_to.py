@@ -76,6 +76,29 @@ def test_applies_to_value_distinguishes_absent_from_empty(cfg) -> None:
     assert A.applies_to_value("---\napplies_to: app/x.py\n---") == "app/x.py"
 
 
+def test_iso_date_or_none_is_strict_and_version_independent() -> None:
+    # Движок обещает человеку РОВНО один формат (`YYYY-MM-DD`) — обещание должно быть
+    # правдой. Без якоря fullmatch с Python 3.11 `fromisoformat` ест весь ISO 8601:
+    # `20260101` и `2026-W01-1` (→ 2025-12-29!) молча стали бы датой, а на Python <3.11
+    # те же значения — нет, то есть поведение зависело бы от версии интерпретатора.
+    import datetime
+    assert A.iso_date_or_none("2026-01-01") == datetime.date(2026, 1, 1)
+    assert A.iso_date_or_none('  "2026-01-01"  ') == datetime.date(2026, 1, 1)   # кавычки+пробелы
+    for bad in ("20260101", "2026-W01-1", "2026-01-01T00:00:00", "01.01.2026",
+                "2026/01/01", "2026-01-01 # коммент", "2026-02-31", "", "завтра"):
+        assert A.iso_date_or_none(bad) is None, bad
+
+
+def test_field_value_does_not_match_substring_keys() -> None:
+    # Ключ-подстрока не должен воровать чужое значение: детектор жалоб стоит на field_value,
+    # и ложный матч дал бы жалобу на поле, которого нет.
+    fm = "---\nx_archived_on: 2020-01-01\narchived_on_note: что-то\n---"
+    assert A.field_value(fm, "archived_on") is None
+    assert A.field_value("---\narchived_on: 2020-01-01\n---", "archived_on") == "2020-01-01"
+    # вложенное под metadata: — матчится намеренно (нативный формат памяти harness)
+    assert A.field_value("---\nmetadata:\n  archived_on: 2020-01-01\n---", "archived_on") == "2020-01-01"
+
+
 def test_no_match_returns_empty(cfg) -> None:
     write_lesson(cfg.memory_dir, "feedback_chat.md",
                  description="чат", applies_to="[app/routers/chat.py]")

@@ -127,7 +127,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     from . import self_check
     from .config import get_config
 
-    issues = self_check.warnings(get_config())
+    # verbose=True: doctor — ручная проверка «покажи всё, что не так с конфигом», ровно как
+    # `python3 -m claude_memory.self_check`. Два входа CLI обязаны вести себя одинаково,
+    # иначе doctor тихо показывает меньше, чем второй CLI (а человек зовёт именно его).
+    issues = self_check.warnings(get_config(), verbose=True)
     if not issues:
         print("✓ config OK")
         return 0

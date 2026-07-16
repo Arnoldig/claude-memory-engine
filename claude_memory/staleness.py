@@ -93,6 +93,8 @@ def scan_archive_stale(
         a, _bad = _date_or_complaint(fm, "archived_on")
         if a is None:
             continue  # поля нет ЛИБО оно не дата — про второе скажет scan_unparsed
+            # (архив он обходит отдельно и рекурсивно — здесь молчать нельзя, это и есть
+            # мотивирующий случай: непонятая дата = урок вечно мимо срока хранения)
         elapsed = _months_elapsed(a, today)
         if elapsed >= n:
             dm = _DESC_RE.search(fm)
@@ -193,6 +195,13 @@ def scan_unparsed(cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str, st
     файлов проекта (дефект чисто в тексте урока), и её независимо зовёт немедленная
     жалоба на записи урока (hooks_cli.ev_post_record). Лишний обход каталога памяти —
     ~сотня мелких файлов, цена ничтожна против связности контракта `scan()`.
+
+    Архив обходится ОТДЕЛЬНО и рекурсивно, и только на `archived_on`. Почему вообще: это
+    мотивирующий случай правки — `archived_on: 01.01.2025` молча не существует, урок
+    вечно мимо `archive_stale_months`; а `archived_on` по замыслу живёт именно в
+    `archive/**`, куда плоский `*.md` не достаёт (без этого прохода жалоба обещала бы то,
+    чего не делает). Почему только он: `reverify_after`/`applies_to` на ХОЛОДНОМ архивном
+    уроке — заведомый шум, там нечему всплывать и нечего перепроверять.
     """
     cfg = cfg or get_config()
     out: List[Tuple[str, str, str]] = []
@@ -201,6 +210,14 @@ def scan_unparsed(cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str, st
         if not fm:
             continue
         out += [(os.path.basename(mf), k, v) for k, v in unparsed_fields(fm)]
+    arc_root = os.path.join(cfg.memory_dir, cfg.archive_dir_name)
+    for mf in sorted(glob.glob(os.path.join(arc_root, "**", "*.md"), recursive=True)):
+        fm = _frontmatter(mf)
+        if not fm:
+            continue
+        _d, bad = _date_or_complaint(fm, "archived_on")
+        if bad is not None:
+            out.append((os.path.relpath(mf, cfg.memory_dir), "archived_on", bad))
     return out
 
 

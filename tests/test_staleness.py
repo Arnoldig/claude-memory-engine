@@ -76,6 +76,30 @@ def test_scan_unparsed_finds_non_iso_dates(cfg) -> None:
                    ("feedback_slash.md", "reverify_after", "2026/01/01")]
 
 
+def test_scan_unparsed_reaches_archive_for_archived_on(cfg) -> None:
+    """Мотивирующий случай правки: `archived_on: 01.01.2020` → урок ВЕЧНО мимо срока
+    хранения. А `archived_on` по замыслу живёт в archive/**, куда плоский `*.md` не
+    достаёт — без рекурсивного прохода жалоба обещала бы то, чего не делает."""
+    _write_archived(cfg, "feedback_bad_arc.md", archived_on=None)
+    p = Path(cfg.memory_dir) / cfg.archive_dir_name / "legacy" / "feedback_bad_arc.md"
+    p.write_text("---\nname: x\ndescription: d\narchived_on: 01.01.2020\n---\nтело\n", encoding="utf-8")
+    assert ST.scan_archive_stale(cfg, today=TODAY) == []          # мимо срока хранения…
+    res = ST.scan_unparsed(cfg)                                    # …но НЕ молча
+    assert res == [(str(Path(cfg.archive_dir_name) / "legacy" / "feedback_bad_arc.md"),
+                    "archived_on", "01.01.2020")]
+
+
+def test_scan_unparsed_ignores_cold_fields_in_archive(cfg) -> None:
+    """В архиве проверяем ТОЛЬКО archived_on: reverify_after/applies_to на холодном
+    архивном уроке — заведомый шум, там нечему всплывать и нечего перепроверять."""
+    arc = Path(cfg.memory_dir) / cfg.archive_dir_name / "legacy"
+    arc.mkdir(parents=True, exist_ok=True)
+    (arc / "feedback_cold.md").write_text(
+        '---\nname: x\ndescription: d\narchived_on: 2025-01-01\n'
+        'reverify_after: 01.01.2026\napplies_to: []\n---\nтело\n', encoding="utf-8")
+    assert ST.scan_unparsed(cfg) == []
+
+
 def test_non_iso_date_does_not_silently_expire_or_archive(cfg) -> None:
     # Обратная сторона той же монеты: непонятая дата НЕ должна притворяться сроком.
     write_lesson(cfg.memory_dir, "feedback_ru.md", description="d", reverify_after="01.01.2026")

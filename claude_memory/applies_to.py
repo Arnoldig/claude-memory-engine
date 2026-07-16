@@ -63,6 +63,9 @@ def field_value(fm: str, key: str) -> Optional[str]:
     return None if m is None else m.group(1).strip()
 
 
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
 def iso_date_or_none(value: str) -> "Optional[datetime.date]":
     """Дата из строгого ISO (`YYYY-MM-DD`) или None, если значение — не дата.
 
@@ -70,10 +73,20 @@ def iso_date_or_none(value: str) -> "Optional[datetime.date]":
     `model_registry_verified_on`) вместо трёх копий regex+try/except: детектор «поле не
     понято» ОБЯЗАН быть точным дополнением парсера, иначе разъедутся и дадут либо ложную
     тишину, либо ложную тревогу. Живёт рядом со `strip_scalar` — там же, где с 0.9.6
-    собраны общие хелперы разбора скалярных значений frontmatter."""
+    собраны общие хелперы разбора скалярных значений frontmatter.
+
+    `fullmatch` ПЕРЕД `fromisoformat` — не украшение: с Python 3.11 `fromisoformat` ест
+    весь ISO 8601, то есть `20260101` и даже `2026-W01-1` (→ 2025-12-29!) молча стали бы
+    датой, а на Python <3.11 те же значения — нет. Без якоря поведение зависело бы от
+    версии интерпретатора, а слово «строгий» в докстринге и `YYYY-MM-DD` в тексте жалобы
+    были бы неправдой. Формат, который движок обещает человеку, ровно один.
+    """
+    v = strip_scalar(value) if isinstance(value, str) else ""
+    if not _ISO_DATE_RE.fullmatch(v):
+        return None
     try:
-        return datetime.date.fromisoformat(strip_scalar(value))
-    except (ValueError, TypeError, AttributeError):
+        return datetime.date.fromisoformat(v)
+    except ValueError:  # синтаксис верный, даты не существует (2026-02-31)
         return None
 
 
