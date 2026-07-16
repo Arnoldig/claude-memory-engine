@@ -1,20 +1,33 @@
 """Самодиагностика конфигурации (SessionStart + CLI). Без сети, ноль токенов.
 
-Ловит ошибки настройки, которые иначе тихо портят работу весь сеанс. Сейчас —
-сверка плейсхолдеров: в каждом messages-override плейсхолдеры `{x}` должны быть
-ПОДМНОЖЕСТВОМ плейсхолдеров дефолта того же ключа. Иначе `.format` не подставит
-значение (как было `{len(cards)}` вместо `{card_count}`, `{lines_part}` вместо
-`{actual_length_or_multiline}`). `msg()` теперь деградирует на дефолт и не падает,
-но текст выходит неверный/английский — поэтому чиним в источнике (конфиге проекта).
+Ловит ошибки настройки, которые иначе тихо портят работу весь сеанс:
+  (1) плейсхолдеры messages-override: `{x}` должны быть ПОДМНОЖЕСТВОМ плейсхолдеров
+      дефолта того же ключа, иначе `.format` не подставит значение (как было
+      `{len(cards)}` вместо `{card_count}`). `msg()` деградирует на дефолт и не падает,
+      но текст выходит неверный/английский — чиним в источнике (конфиге проекта);
+  (2) ОПЕЧАТКИ в именах ключей конфига (`typo_key_issues`, difflib);
+  (3) битые пользовательские regex-шаблоны (`bad_regex_issues`) — страж молча выключался;
+  (4) поля-даты конфига не в ISO (`bad_date_issues`) — страж молча выключался.
+Общее у (2)–(4): человек ОСМЫСЛЕННО что-то задал, а движок молча сделал вид, что не
+задано. Молчание тут неотличимо от «всё хорошо» — поэтому говорим вслух.
 
-Триггер: SessionStart, КАЖДУЮ сессию (не throttle) — битая настройка актуальна,
-пока её не исправят, и должна быть видна на старте. Плюс ручной CLI для setup.
+ГРАНИЦА МОДУЛЯ: self_check читает ТОЛЬКО конфиг и НИКОГДА не ходит в файлы уроков —
+поэтому имеет право бежать на каждом SessionStart. Дефекты в данных уроков (непонятые
+поля frontmatter) живут в `staleness.scan_unparsed` → `_stale_pending`: там обход корпуса
+уже оплачен.
+
+Триггер: SessionStart, КАЖДУЮ сессию (не throttle) — битая настройка актуальна, пока её
+не исправят, и должна быть видна на старте. Шум от этого не копится: такие жалобы чинятся
+один раз навсегда. Плюс ручной CLI (verbose) для setup.
+
 """
 from __future__ import annotations
 
+import difflib
 import re
 from typing import List, Tuple
 
+from .applies_to import iso_date_or_none
 from .config import MemoryConfig, get_config
 from .messages import DEFAULT_MESSAGES, msg
 
@@ -44,13 +57,89 @@ def message_placeholder_issues(cfg: MemoryConfig) -> List[Tuple[str, set]]:
     return sorted(issues, key=lambda x: x[0])
 
 
-def warnings(cfg: MemoryConfig = None) -> List[str]:
-    """Готовые строки-предупреждения самодиагностики (пусто, если всё чисто)."""
+def typo_key_issues(cfg: MemoryConfig) -> List[Tuple[str, str]]:
+    """[(неизвестный_ключ, похожий_известный)] — вероятные ОПЕЧАТКИ в именах полей конфига.
+
+    Молчаливое отбрасывание неизвестных ключей (`config._coerce`) задумано ради
+    forward-compat: старый движок не должен падать на конфиге новой версии. Поэтому лаять
+    на ВСЕ неизвестные ключи нельзя — это сломало бы само намерение. Но опечатка тоже
+    отбрасывается молча, и человек получает английский дефолт вместо своей настройки
+    (так уже случилось со стражем закрытия задачи).
+
+    Разводим две популяции по близости к известному имени (`difflib`, stdlib): опечатка по
+    построению близка к существующему ключу, честно новый/чужой ключ — нет. Ключи с
+    ведущим `_` пропускаем ВСЕГДА: это принятое соглашение для заметок-комментариев внутри
+    JSON (у конфига живого проекта есть `_task_close_pattern_note`, и он близок к
+    `task_close_pattern` — без этого правила жалоба была бы ложной на каждом старте).
+    """
+    known = sorted(MemoryConfig.__dataclass_fields__)  # type: ignore[attr-defined]
+    out: List[Tuple[str, str]] = []
+    for key in getattr(cfg, "unknown_config_keys", ()) or ():
+        if key.startswith("_"):
+            continue
+        near = difflib.get_close_matches(key, known, n=1, cutoff=0.8)
+        if near:
+            out.append((key, near[0]))
+    return out
+
+
+def bad_regex_issues(cfg: MemoryConfig) -> List[Tuple[str, str]]:
+    """[(поле, текст_ошибки)] для пользовательских regex-шаблонов, которые НЕ компилируются.
+
+    Битый шаблон движок ловит `except re.error` и возвращает «не совпало» — страж молча
+    выключается, а «выключен» неотличимо от «ничего не нашёл». Худший класс дефекта:
+    отсутствие сигнала выглядит как «всё хорошо».
+    """
+    out: List[Tuple[str, str]] = []
+    for fieldname in ("session_close_pattern", "task_close_pattern"):
+        pattern = getattr(cfg, fieldname, "") or ""
+        if not pattern:
+            continue  # пусто = страж намеренно выключен, это не дефект
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            out.append((fieldname, str(e)))
+    return out
+
+
+def bad_date_issues(cfg: MemoryConfig) -> List[Tuple[str, str]]:
+    """[(поле, значение)] для полей-дат конфига не в строгом ISO.
+
+    `model_registry_verified_on` в виде `01.01.2026` → страж сверки линейки молча
+    выключается. Человек его ЗАПОЛНИЛ, то есть намеренно включал — и получил тишину,
+    неотличимую от «выключено» (дефолт поля — None = выключено)."""
+    out: List[Tuple[str, str]] = []
+    for fieldname in ("model_registry_verified_on",):
+        raw = getattr(cfg, fieldname, None)
+        if raw and iso_date_or_none(str(raw)) is None:
+            out.append((fieldname, str(raw)))
+    return out
+
+
+def warnings(cfg: MemoryConfig = None, verbose: bool = False) -> List[str]:
+    """Готовые строки-предупреждения самодиагностики (пусто, если всё чисто).
+
+    verbose=True (CLI-режим, человек сам попросил проверку при настройке) добавляет ВСЕ
+    неизвестные ключи справочно — так закрывается слепая зона difflib: опечатка, далёкая
+    от любого известного имени. На SessionStart этого нет намеренно: там лаем только на
+    похожие, иначе forward-compat-ключи шумели бы каждую сессию.
+    """
     cfg = cfg or get_config()
-    return [
+    out = [
         msg(cfg, "self_check.bad_placeholder", msg_key=key, extras=", ".join(sorted(extra)))
         for key, extra in message_placeholder_issues(cfg)
     ]
+    out += [msg(cfg, "self_check.typo_key", key=key, near=near)
+            for key, near in typo_key_issues(cfg)]
+    out += [msg(cfg, "self_check.bad_regex", field=f, error=e) for f, e in bad_regex_issues(cfg)]
+    out += [msg(cfg, "self_check.bad_date", field=f, value=v) for f, v in bad_date_issues(cfg)]
+    if verbose:
+        flagged = {k for k, _ in typo_key_issues(cfg)}
+        rest = [k for k in (getattr(cfg, "unknown_config_keys", ()) or ())
+                if k not in flagged and not k.startswith("_")]
+        if rest:
+            out.append(msg(cfg, "self_check.unknown_keys_info", keys=", ".join(rest)))
+    return out
 
 
 def run(cfg: MemoryConfig = None) -> str:
@@ -63,7 +152,7 @@ def main() -> None:
     import sys
 
     cfg = get_config()
-    issues = warnings(cfg)
+    issues = warnings(cfg, verbose=True)
     if not issues:
         print(msg(cfg, "self_check.ok"))
         return

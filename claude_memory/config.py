@@ -224,6 +224,13 @@ class MemoryConfig:
     # дефолтов в claude_memory.messages.DEFAULT_MESSAGES. См. messages.msg().
     messages: dict = field(default_factory=dict)
 
+    # — служебное, НЕ задаётся человеком: ключи JSON-конфига, которых движок не знает и
+    # потому выбросил (`_coerce`). Их надо ПОМНИТЬ, иначе self_check физически не сможет
+    # сказать про опечатку в имени ключа: к нему конфиг приходит уже очищенным, и
+    # `session_close_patterns` (лишняя s) неотличим от «поле не задавали».
+    # Заполняется только `load()`; значение из JSON игнорируется (см. `_coerce`).
+    unknown_config_keys: Tuple[str, ...] = ()
+
     def topic_titles(self) -> dict:
         return dict(self.topic_order)
 
@@ -246,9 +253,19 @@ def _coerce(data: dict) -> dict:
     for k in _TUPLE_FIELDS:
         if k in out and out[k] is not None:
             out[k] = tuple(out[k])
-    # выкидываем неизвестные ключи, чтобы чужой конфиг не падал на новых/чужих полях
+    # Выкидываем неизвестные ключи, чтобы чужой конфиг не падал на новых/чужих полях
+    # (forward-compat: старый движок × конфиг новой версии). Но ПОМНИМ выброшенное:
+    # молчаливое отбрасывание не отличает «ключ из будущей версии» от опечатки, а
+    # опечатка тихо оставляет английский дефолт (так уже было со стражем закрытия).
+    # Решает не тут, а self_check: он сузит до похожих на известные (difflib).
+    # `unknown_config_keys` — служебное поле, из JSON его не принимаем: иначе конфиг
+    # смог бы подделать собственный отчёт о своих же опечатках.
     known = {f for f in MemoryConfig.__dataclass_fields__}  # type: ignore[attr-defined]
-    return {k: v for k, v in out.items() if k in known}
+    out.pop("unknown_config_keys", None)
+    dropped = tuple(sorted(k for k in out if k not in known))
+    coerced = {k: v for k, v in out.items() if k in known}
+    coerced["unknown_config_keys"] = dropped
+    return coerced
 
 
 def _find_config_file(explicit: Optional[str]) -> Optional[Path]:
