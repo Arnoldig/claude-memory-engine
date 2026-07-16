@@ -51,22 +51,58 @@ def test_scan_finds_dead_applies_to(cfg) -> None:
 
 def test_scan_unparsed_finds_undigested_applies_to(cfg) -> None:
     # Поле есть, глобов нет → урок никогда не всплывёт, а выглядит настроенным.
-    # Скан обязан назвать и файл, и само непонятое значение.
+    # Скан обязан назвать и файл, и поле, и само непонятое значение.
     write_lesson(cfg.memory_dir, "feedback_bad.md", description="d", applies_to="{путь: app/x.py}")
     write_lesson(cfg.memory_dir, "feedback_empty.md", description="d", applies_to="")
     write_lesson(cfg.memory_dir, "feedback_ok.md", description="d", applies_to="app/x.py")     # скаляр — разобран
     write_lesson(cfg.memory_dir, "feedback_list.md", description="d", applies_to="[app/x.py]")  # список — разобран
     write_lesson(cfg.memory_dir, "feedback_none.md", description="d")                           # поля нет — не дефект
-    res = dict(ST.scan_unparsed(cfg))
-    assert res == {"feedback_bad.md": "{путь: app/x.py}", "feedback_empty.md": ""}
+    res = ST.scan_unparsed(cfg)
+    assert sorted(res) == [("feedback_bad.md", "applies_to", "{путь: app/x.py}"),
+                           ("feedback_empty.md", "applies_to", "")]
 
 
-def test_unparsed_goes_into_pending_with_name_and_value(cfg) -> None:
+def test_scan_unparsed_finds_non_iso_dates(cfg) -> None:
+    # Дата не в ISO молча не существовала: урок выглядел срочным и жил вечно,
+    # архивный — навсегда мимо срока хранения. Теперь про это говорят вслух.
+    write_lesson(cfg.memory_dir, "feedback_ru.md", description="d", reverify_after='"01.01.2026"')
+    write_lesson(cfg.memory_dir, "feedback_slash.md", description="d", reverify_after="2026/01/01")
+    write_lesson(cfg.memory_dir, "feedback_arc.md", description="d", archived_on="01.01.2025")
+    write_lesson(cfg.memory_dir, "feedback_iso.md", description="d", reverify_after="2026-01-01")  # ок
+    write_lesson(cfg.memory_dir, "feedback_no.md", description="d")                                # поля нет
+    res = sorted(ST.scan_unparsed(cfg))
+    assert res == [("feedback_arc.md", "archived_on", "01.01.2025"),
+                   ("feedback_ru.md", "reverify_after", '"01.01.2026"'),
+                   ("feedback_slash.md", "reverify_after", "2026/01/01")]
+
+
+def test_non_iso_date_does_not_silently_expire_or_archive(cfg) -> None:
+    # Обратная сторона той же монеты: непонятая дата НЕ должна притворяться сроком.
+    write_lesson(cfg.memory_dir, "feedback_ru.md", description="d", reverify_after="01.01.2026")
+    stale, _ = ST.scan(cfg, today=TODAY)
+    assert stale == []          # не просрочен: даты нет — но про это теперь жалуются
+    assert ST.scan_unparsed(cfg) == [("feedback_ru.md", "reverify_after", "01.01.2026")]
+
+
+def test_unparsed_goes_into_pending_with_name_field_and_value(cfg) -> None:
     # Жалоба должна дойти до человека через _stale_pending (его SessionStart печатает целиком).
     write_lesson(cfg.memory_dir, "feedback_bad.md", description="d", applies_to="{путь: app/x.py}")
+    write_lesson(cfg.memory_dir, "feedback_dt.md", description="d", reverify_after="01.01.2026")
     assert ST.run(cfg, today=TODAY) is True
     body = (Path(cfg.memory_dir) / ST.STALE_FILE).read_text(encoding="utf-8")
     assert "feedback_bad.md" in body and "{путь: app/x.py}" in body
+    assert "feedback_dt.md" in body and "01.01.2026" in body and "reverify_after" in body
+
+
+def test_unparsed_section_capped_so_it_cannot_flood_context(cfg) -> None:
+    # После массового импорта таких уроков могут быть десятки, а секция печатается в
+    # контекст на КАЖДОМ старте. Показываем первые N + счётчик — сигнал есть, потопа нет.
+    for i in range(ST.UNPARSED_CAP + 5):
+        write_lesson(cfg.memory_dir, f"feedback_{i:03}.md", description="d", applies_to="[]")
+    assert ST.run(cfg, today=TODAY) is True
+    body = (Path(cfg.memory_dir) / ST.STALE_FILE).read_text(encoding="utf-8")
+    assert body.count("— `applies_to:") == ST.UNPARSED_CAP
+    assert "and 5 more" in body
 
 
 def test_write_pending_creates_and_removes(cfg) -> None:

@@ -43,7 +43,16 @@ def test_post_record_complains_about_unparsed_applies_to(cfg, tmp_path) -> None:
     td = str(tmp_path / "tmp")
     out = H.ev_post_record({"tool_name": "Write", "tool_input": {"file_path": str(p)}}, cfg, "sess1", td)
     assert out and "feedback_bad.md" in out and "{путь: app/x.py}" in out
-    assert "applies-to-unparsed" in out
+    assert "frontmatter-unparsed" in out
+
+
+def test_post_record_complains_about_non_iso_date(cfg, tmp_path) -> None:
+    """Тот же немедленный канал для дат: `01.01.2026` — естественная запись, которую движок
+    молча не видел (урок выглядел срочным и жил вечно). Теперь говорит при записи."""
+    p = write_lesson(cfg.memory_dir, "feedback_dt.md", description="d", reverify_after="01.01.2026")
+    out = H.ev_post_record({"tool_name": "Write", "tool_input": {"file_path": str(p)}}, cfg, "s",
+                           str(tmp_path / "tmp"))
+    assert out and "reverify_after" in out and "01.01.2026" in out and "YYYY-MM-DD" in out
 
 
 def test_post_record_silent_on_valid_and_absent_applies_to(cfg, tmp_path) -> None:

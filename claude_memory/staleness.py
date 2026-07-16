@@ -22,14 +22,44 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .applies_to import _applies_globs, _frontmatter, strip_scalar, unparsed_applies_to
+from .applies_to import (
+    _applies_globs,
+    _frontmatter,
+    field_value,
+    iso_date_or_none,
+    strip_scalar,
+    unparsed_applies_to,
+)
 from .config import MemoryConfig, get_config
 from .messages import msg
 
-_REVERIFY_RE = re.compile(r"^[ \t]*reverify_after:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
-_ARCHIVED_RE = re.compile(r"^[ \t]*archived_on:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
 _DESC_RE = re.compile(r"^description:[ \t]*(.*)$", re.MULTILINE)  # [ \t]* не \s*: пустое поле не хватает следующую строку
 STALE_FILE = "_stale_pending.md"
+DATE_FIELDS = ("reverify_after", "archived_on")
+# Потолок секции непонятых значений в _stale_pending: после массового импорта/переразметки
+# их могут быть десятки, а секция печатается в контекст на КАЖДОМ старте и конкурирует за
+# внимание с самой памятью. Показываем первые N + счётчик остатка — сигнал сохраняется,
+# контекст не топим.
+UNPARSED_CAP = 20
+
+
+def _date_or_complaint(fm: str, key: str):
+    """(дата, жалоба) для поля-даты: ровно ТРИ состояния, без четвёртого.
+
+    (None, None)     — поля нет (не дефект);
+    (date, None)     — поле есть и разобрано;
+    (None, "сырое")  — поле ЕСТЬ, но датой не является → об этом надо СКАЗАТЬ.
+
+    Раньше здесь стоял строгий regex `(\\d{4}-\\d{2}-\\d{2})`, который сливал 1-е и 3-е
+    состояния: `reverify_after: "01.01.2026"` (естественная русская запись) молча не
+    существовал — урок выглядел срочным и жил вечно, а `archived_on` навсегда проходил
+    мимо срока хранения. Детектор и парсер здесь ОДИН, поэтому разъехаться не могут.
+    """
+    raw = field_value(fm, key)
+    if raw is None:
+        return None, None
+    d = iso_date_or_none(raw)
+    return (d, None) if d else (None, raw)
 
 
 def _months_elapsed(a: datetime.date, today: datetime.date) -> int:
@@ -60,13 +90,9 @@ def scan_archive_stale(
         fm = _frontmatter(mf)
         if not fm:
             continue
-        m = _ARCHIVED_RE.search(fm)
-        if not m:
-            continue
-        try:
-            a = datetime.date.fromisoformat(m.group(1))
-        except ValueError:
-            continue
+        a, _bad = _date_or_complaint(fm, "archived_on")
+        if a is None:
+            continue  # поля нет ЛИБО оно не дата — про второе скажет scan_unparsed
         elapsed = _months_elapsed(a, today)
         if elapsed >= n:
             dm = _DESC_RE.search(fm)
@@ -125,15 +151,10 @@ def scan(
         if not fm:
             continue
         name = os.path.basename(mf)
-        m = _REVERIFY_RE.search(fm)
-        if m:
-            try:
-                d = datetime.date.fromisoformat(m.group(1))
-                if d < today:
-                    dm = _DESC_RE.search(fm)
-                    stale.append((d.isoformat(), name, strip_scalar(dm.group(1)) if dm else ""))
-            except ValueError:
-                pass
+        d, _bad = _date_or_complaint(fm, "reverify_after")
+        if d is not None and d < today:
+            dm = _DESC_RE.search(fm)
+            stale.append((d.isoformat(), name, strip_scalar(dm.group(1)) if dm else ""))
         if repo_files:
             dead = [
                 g for g in _applies_globs(fm)
@@ -146,9 +167,27 @@ def scan(
     return stale, broken
 
 
-def scan_unparsed(cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str]]:
-    """[(имя_урока, сырое_значение)] для уроков, где `applies_to:` задан, но глобов из
-    него не вышло — привязка выглядит настроенной, а не работает.
+def unparsed_fields(fm: str) -> List[Tuple[str, str]]:
+    """[(поле, сырое_значение)] для полей frontmatter, которые ЗАДАНЫ, но не разобраны.
+
+    Один детектор на все поля, а не механизм на каждое: болезнь у них общая — поле молча
+    не работает и выглядит как «не задано». Сейчас покрыты `applies_to` (глоб не вышел) и
+    поля-даты (не ISO). Новое поле добавляется одной строкой здесь и получает ОБА канала
+    жалобы сразу (немедленный на записи + сводку), не заводя третьей конструкции.
+    """
+    out: List[Tuple[str, str]] = []
+    raw = unparsed_applies_to(fm)
+    if raw is not None:
+        out.append(("applies_to", raw))
+    for key in DATE_FIELDS:
+        _d, bad = _date_or_complaint(fm, key)
+        if bad is not None:
+            out.append((key, bad))
+    return out
+
+
+def scan_unparsed(cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str, str]]:
+    """[(имя_урока, поле, сырое_значение)] по всей памяти — поля заданы, но не разобраны.
 
     Отдельной функцией, а не третьим элементом `scan()`: у неё нет ни `today`, ни обхода
     файлов проекта (дефект чисто в тексте урока), и её независимо зовёт немедленная
@@ -156,14 +195,12 @@ def scan_unparsed(cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str]]:
     ~сотня мелких файлов, цена ничтожна против связности контракта `scan()`.
     """
     cfg = cfg or get_config()
-    out: List[Tuple[str, str]] = []
+    out: List[Tuple[str, str, str]] = []
     for mf in sorted(glob.glob(os.path.join(cfg.memory_dir, "*.md"))):
         fm = _frontmatter(mf)
         if not fm:
             continue
-        raw = unparsed_applies_to(fm)
-        if raw is not None:
-            out.append((os.path.basename(mf), raw))
+        out += [(os.path.basename(mf), k, v) for k, v in unparsed_fields(fm)]
     return out
 
 
@@ -174,7 +211,7 @@ def write_pending(
     today: Optional[datetime.date] = None,
     archived: Optional[List[Tuple[str, str, int, str]]] = None,
     reconcile: Optional[dict] = None,
-    unparsed: Optional[List[Tuple[str, str]]] = None,
+    unparsed: Optional[List[Tuple[str, str, str]]] = None,
 ) -> bool:
     """Пишет `_stale_pending.md` (или удаляет, если долга нет). Возвращает True, если файл записан.
 
@@ -231,9 +268,12 @@ def write_pending(
     if unparsed:
         lines.append(msg(cfg, "staleness.pending_file.unparsed_section_header"))
         lines += [
-            msg(cfg, "staleness.pending_file.unparsed_item", name=name, value=value)
-            for name, value in unparsed
+            msg(cfg, "staleness.pending_file.unparsed_item", name=name, field=field, value=value)
+            for name, field, value in unparsed[:UNPARSED_CAP]
         ]
+        if len(unparsed) > UNPARSED_CAP:
+            lines.append(msg(cfg, "staleness.pending_file.unparsed_more",
+                             count=len(unparsed) - UNPARSED_CAP))
         lines.append(msg(cfg, "staleness.pending_file.unparsed_hint"))
         lines.append("")
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

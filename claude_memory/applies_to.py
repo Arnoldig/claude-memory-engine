@@ -12,6 +12,7 @@ worktree).
 """
 from __future__ import annotations
 
+import datetime
 import fnmatch
 import glob
 import os
@@ -47,6 +48,35 @@ def strip_scalar(value: str) -> str:
     return value.strip().strip('"').strip("'")
 
 
+def field_value(fm: str, key: str) -> Optional[str]:
+    """Сырое значение top-level или вложенного поля `key:` (обрезанное) или None, если поля нет.
+
+    Обобщение `applies_to_value` на любое скалярное поле. Ведущий [ \\t]* ловит и top-level,
+    и вложенное под `metadata:`; после двоеточия — [ \\t]* (не \\s*), иначе у ПУСТОГО значения
+    regex съест перенос и захватит следующую строку frontmatter как значение (баг 0.9.4).
+
+    Различие None (поля нет) и "" (поле есть, значение пусто) — несущее: на нём стоят все
+    жалобы движка «поле задано, но не понято». Без него «не задано» и «задано мусором»
+    сливаются в одно, и дефект живёт годами (см. историю applies_to).
+    """
+    m = re.search(rf"^[ \t]*{re.escape(key)}:[ \t]*(.*)$", fm, re.MULTILINE)
+    return None if m is None else m.group(1).strip()
+
+
+def iso_date_or_none(value: str) -> "Optional[datetime.date]":
+    """Дата из строгого ISO (`YYYY-MM-DD`) или None, если значение — не дата.
+
+    Единый разбор дат frontmatter/конфига (`reverify_after`, `archived_on`,
+    `model_registry_verified_on`) вместо трёх копий regex+try/except: детектор «поле не
+    понято» ОБЯЗАН быть точным дополнением парсера, иначе разъедутся и дадут либо ложную
+    тишину, либо ложную тревогу. Живёт рядом со `strip_scalar` — там же, где с 0.9.6
+    собраны общие хелперы разбора скалярных значений frontmatter."""
+    try:
+        return datetime.date.fromisoformat(strip_scalar(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def _frontmatter(path: str) -> str:
     try:
         head = read_head(path)
@@ -62,8 +92,7 @@ def applies_to_value(fm: str) -> Optional[str]:
     поля нет вовсе. Пустая строка = поле ЕСТЬ с пустым значением (YAML-список ниже либо
     объявленная, но не заполненная привязка) — отличать её от None обязательно: на этом
     различии стоит жалоба `unparsed_applies_to`."""
-    m = _APPLIES_RE.search(fm)
-    return None if m is None else m.group(1).strip()
+    return field_value(fm, "applies_to")
 
 
 def _applies_globs(fm: str) -> List[str]:

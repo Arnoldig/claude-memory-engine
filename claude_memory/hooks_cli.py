@@ -39,7 +39,7 @@ from . import (
     subagent_efficiency_log,
     subagent_model_guard,
 )
-from .applies_to import _frontmatter, find_lessons_for_path, format_lines, unparsed_applies_to
+from .applies_to import _frontmatter, find_lessons_for_path, format_lines
 from .config import MemoryConfig, get_config
 from .messages import msg
 
@@ -207,7 +207,8 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
 def ev_post_record(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str) -> Optional[str]:
     """PostToolUse Read|Write|Edit|MultiEdit на файле памяти: запомнить on-disk версию (CAS),
     и, если это ПРАВКА урока, отметить «урок тронут в этой сессии» (для stale_reconcile)
-    + пожаловаться, если у только что записанного урока `applies_to:` задан, но не разобран.
+    + пожаловаться, если у только что записанного урока поле frontmatter задано, но не
+    разобрано (`applies_to` без глобов, дата не в ISO).
 
     Возвращает текст жалобы (в контекст через additionalContext) или None.
 
@@ -237,13 +238,15 @@ def ev_post_record(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str)
     if str(event.get("tool_name") or "") not in ("Write", "Edit", "MultiEdit"):
         return None
     stale_reconcile.record_edited_lesson(session_id, file_path, tmpdir)
-    raw = unparsed_applies_to(_frontmatter(file_path))
-    if raw is None:
+    bad = staleness.unparsed_fields(_frontmatter(file_path))
+    if not bad:
         return None
-    return msg(
-        cfg, "applies_to.unparsed_warning",
-        filename=os.path.basename(file_path), value=raw,
-        hint=msg(cfg, "applies_to.unparsed_hint"),
+    return "\n".join(
+        msg(cfg, "frontmatter.unparsed_warning",
+            filename=os.path.basename(file_path), field=field, value=value,
+            hint=msg(cfg, "frontmatter.unparsed_hint_applies_to" if field == "applies_to"
+                     else "frontmatter.unparsed_hint_date"))
+        for field, value in bad
     )
 
 
