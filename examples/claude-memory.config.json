@@ -39,6 +39,7 @@
   "catalog_preamble": "# Lessons Catalog (read on demand)",
   "desc_max": 150,
   "oversize_bytes": 9000,
+  "description_warn_chars": 500,
   "catalog_auto_start": "<!-- AUTO-INDEX:START — managed by catalog_generate; edits between markers are overwritten -->",
   "catalog_auto_end": "<!-- AUTO-INDEX:END -->",
   "private_file_prefix": "_",
@@ -121,9 +122,10 @@
   "default_subagent_type": "general-purpose",
   "strongest_model_substr": "opus",
   "known_model_substrs": [
-    "haiku",
+    "opus",
     "sonnet",
-    "opus"
+    "haiku",
+    "fable"
   ],
   "model_registry_verified_on": "2026-06-18",
   "model_registry_max_age_days": 60,
@@ -163,7 +165,6 @@
   "session_close_case_sensitive": false,
   "archive_stale_months": 6,
   "lesson_count_warn": 500,
-  "known_model_substrs": ["opus", "sonnet", "haiku", "fable"],
   "llm_actuality_enabled": true,
   "llm_actuality_interval_hours": 24,
   "session_start_notes": [],
