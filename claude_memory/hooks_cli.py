@@ -178,14 +178,12 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
         if c:
             return c
 
-    # 3) уроки по пути файла (applies_to) — разово на (сессию, файл), вне памяти/.claude.
-    # Worktree-aware: служебное .claude/ пропускаем, НО правки проектных файлов в
-    # .claude/worktrees/<wt>/ — НЕ служебные, страж по ним обязан срабатывать
-    # (проект может работать из worktree). Вне worktree проектные файлы
-    # и так не под .claude/ — не задеты.
-    norm = file_path.replace("\\", "/")
-    in_claude_tooling = "/.claude/" in norm and "/.claude/worktrees/" not in norm
-    if not in_claude_tooling and not in_memory:
+    # 3) уроки по пути файла (applies_to) — разово на (сессию, файл), вне каталога памяти.
+    # Служебное `.claude/` больше НЕ пропускается скопом: правило переехало в
+    # `find_lessons_for_path` (там оно одно на оба канала — хук и ретривер) и стало точным:
+    # внутри `.claude/` матчат только глобы, которые сами адресуют `.claude/`. Широкий
+    # `*.py` туда по-прежнему не лезет, а явная привязка к стражу выкладки — работает.
+    if not in_memory:
         # запомнить правленый проектный файл (с уроками или без) — для смыслового поиска
         # связанных уроков на закрытии задачи (stale_reconcile.related_lessons).
         stale_reconcile.record_edited_file(session_id, file_path, tmpdir)
@@ -323,8 +321,24 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             raw = p.read_text(encoding="utf-8")
         except OSError:
             raw = ""
-        if raw.startswith("---") and not catalog_generate.parse_frontmatter(raw).get("name", "").strip():
-            warnings.append(msg(cfg, "bloat.empty_name", filename=name))
+        if raw.startswith("---"):
+            fields = catalog_generate.parse_frontmatter(raw)
+            if not fields.get("name", "").strip():
+                warnings.append(msg(cfg, "bloat.empty_name", filename=name))
+            # — раздутое `description`: это КРАТКОЕ содержание, а не тело урока —
+            # Ловим в момент записи, потому что цена платится потом и не автором: страж
+            # правки и ретривер печатают description ЦЕЛИКОМ, и четыре урока по абзацу
+            # превращаются в стену, которую перестают читать (тогда вся привязка зря).
+            # Обрезать при показе нельзя — потеряется контекст, ради которого урок и писан;
+            # значит чинить надо источник. Длинное описание почти всегда значит одно из
+            # двух: тело урока запихнули в краткое содержание ЛИБО склеили два урока
+            # (живой пример: описание на 1209 знаков, где вторая половина начинается с
+            # «CSS issue #3» — то есть в файле два разных урока).
+            desc = fields.get("description", "")
+            limit = cfg.description_warn_chars
+            if limit and len(desc) > limit:
+                warnings.append(msg(cfg, "bloat.description_long",
+                                    filename=name, size=len(desc), limit=limit))
     # — горячее ядро: символы/байты + ранний нудж на core_warn_ratio —
     if name == cfg.core_file:
         size = _measure(p, cfg.core_size_unit)

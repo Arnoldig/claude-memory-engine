@@ -195,23 +195,51 @@ def _candidates(target: str, project_root: str) -> set:
     return {c for c in cands if c}
 
 
+def _in_claude_tooling(target: str) -> bool:
+    """Путь лежит в служебном `.claude/` (но НЕ в `.claude/worktrees/<wt>/` — там проектные
+    файлы: проект может работать из worktree, и они не служебные)."""
+    norm = os.path.abspath(target).replace("\\", "/")
+    return "/.claude/" in norm and "/.claude/worktrees/" not in norm
+
+
+def _glob_targets_claude(g: str) -> bool:
+    """Глоб АДРЕСУЕТ `.claude/` явно (а не попал туда широким `*.py`)."""
+    return ".claude/" in g.replace("\\", "/")
+
+
 def find_lessons_for_path(
     target: str, cfg: Optional[MemoryConfig] = None
 ) -> List[Tuple[str, str]]:
     """Список (имя_файла_урока, описание) уроков, чьи applies_to-глобы матчат target.
 
     Отсортировано по имени файла. Описание — из `description:` frontmatter ("" если нет).
+
+    Для путей внутри служебного `.claude/` действует ЯВНОЕ правило: матчат только те
+    глобы, что сами адресуют `.claude/`. Так уживаются две правды, каждая из которых
+    раньше побеждала целиком и была неправа:
+      • широкий глоб (`*.py` — fnmatch `*` матчит и слэши) НЕ должен всплывать на
+        служебных файлах; прежний общий пропуск `.claude/` защищал именно от этого;
+      • но проекты держат в `.claude/` НАСТОЯЩИЙ код (стражи выкладки, хуки), и у ЧеКи
+        есть урок, ПРЕДПИСЫВАЮЩИЙ привязывать уроки о движке к вендоренной копии
+        (`.claude/memory_engine/claude_memory/…`). Общий пропуск молча отменял явную
+        привязку — 12 уроков в двух проектах не всплывали никогда.
+    Правило живёт ЗДЕСЬ, а не в хуке: иначе половины движка расходятся (так и было —
+    ретривер `.claude/` никогда не пропускал, и по упоминанию пути в запросе урок
+    находился, а на правке того же файла молчал).
     """
     cfg = cfg or get_config()
     if not target:
         return []
     candidates = _candidates(target, cfg.project_root)
+    tooling = _in_claude_tooling(target)
     out: List[Tuple[str, str]] = []
     for mf in sorted(glob.glob(os.path.join(cfg.memory_dir, "*.md"))):
         fm = _frontmatter(mf)
         if not fm:
             continue
         globs = _applies_globs(fm)
+        if tooling:
+            globs = [g for g in globs if _glob_targets_claude(g)]
         if not globs:
             continue
         if not any(

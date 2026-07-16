@@ -35,6 +35,48 @@ def test_applies_marker_stable_path_and_stores_lessons(cfg, tmp_path) -> None:
     assert SR.gather_shown("sess1", td) == {"feedback_app.md": {target}}
 
 
+def test_applies_gate_fires_on_project_code_inside_dot_claude(cfg, tmp_path) -> None:
+    """`.claude/` больше не «служебный» скопом: проекты держат там НАСТОЯЩИЙ код (стражи
+    выкладки, хуки, вендоренная копия движка), и у ЧеКи есть урок, ПРЕДПИСЫВАЮЩИЙ
+    привязывать уроки к `.claude/memory_engine/…`. Прежний пропуск молча отменял явную
+    привязку — 12 уроков в двух проектах не всплывали никогда."""
+    write_lesson(cfg.memory_dir, "feedback_guard.md", description="про стража",
+                 applies_to="[.claude/hooks/predeploy_guard.sh]")
+    write_lesson(cfg.memory_dir, "feedback_vendor.md", description="про движок",
+                 applies_to="[.claude/memory_engine/claude_memory/config.py]")
+    td = str(tmp_path / "tmp")
+    for target, expect in ((".claude/hooks/predeploy_guard.sh", "feedback_guard.md"),
+                           (".claude/memory_engine/claude_memory/config.py", "feedback_vendor.md")):
+        p = Path(cfg.project_root) / target
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+        out = H.ev_pre_edit_guard(_edit_event(str(p)), cfg, f"s-{target}", td)
+        assert out is not None and expect in out, target
+
+
+def test_applies_gate_broad_glob_still_does_not_leak_into_dot_claude(cfg, tmp_path) -> None:
+    """Обратная сторона правила — она же вторая правда, которую нельзя терять: ШИРОКИЙ
+    глоб в служебное `.claude/` не лезет. `*.json` совпал бы с любым json-путём (fnmatch
+    `*` матчит и слэши), так что тишина здесь доказывает именно правило, а не отсутствие
+    совпадения. Тот же глоб на проектном файле — срабатывает."""
+    write_lesson(cfg.memory_dir, "feedback_json.md", description="про json", applies_to="[*.json]")
+    tooling = Path(cfg.project_root) / ".claude" / "settings.json"
+    tooling.parent.mkdir(parents=True, exist_ok=True)
+    tooling.write_text("{}", encoding="utf-8")
+    assert H.ev_pre_edit_guard(_edit_event(str(tooling)), cfg, "s1", str(tmp_path / "tmp")) is None
+    proj = Path(cfg.project_root) / "package.json"
+    proj.write_text("{}", encoding="utf-8")
+    assert H.ev_pre_edit_guard(_edit_event(str(proj)), cfg, "s2", str(tmp_path / "tmp")) is not None
+
+
+def test_applies_gate_still_skips_memory_dir(cfg, tmp_path) -> None:
+    """Каталог памяти остаётся вне стража: там правки самих уроков, а не кода проекта.
+    Важно, что это работает и когда память лежит ВНУТРИ ~/.claude/projects/<…> (реальная
+    раскладка) — раньше её прикрывал общий пропуск `.claude/`, теперь только in_memory."""
+    lesson = write_lesson(cfg.memory_dir, "feedback_any.md", description="d", applies_to="[**/*.md]")
+    assert H.ev_pre_edit_guard(_edit_event(str(lesson)), cfg, "s1", str(tmp_path / "tmp")) is None
+
+
 def test_post_record_complains_about_unparsed_applies_to(cfg, tmp_path) -> None:
     """Немедленная жалоба: записал урок с непонятым applies_to → движок говорит ВСЛУХ
     (файл + значение), а не молчит до следующей сессии. Момент записи — единственный,
@@ -122,6 +164,35 @@ def test_bloat_check_warns_on_empty_name(cfg) -> None:
     event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
     out = H.ev_bloat_check(event, cfg)
     assert "feedback_empty_name.md" in out
+
+
+def test_bloat_check_warns_on_bloated_description(cfg) -> None:
+    """Раздутое `description` ловим в момент ЗАПИСИ урока: цену платит не автор, а тот,
+    кто потом правит файл — страж печатает описание ЦЕЛИКОМ, и несколько таких уроков
+    превращаются в стену, которую перестают читать. Обрезать при показе нельзя (потеря
+    контекста) → чиним источник."""
+    p = write_lesson(cfg.memory_dir, "feedback_wall.md", name="Заголовок",
+                     description="я" * 600, topic="testing", body="тело")
+    out = H.ev_bloat_check({"tool_name": "Write", "tool_input": {"file_path": str(p)}}, cfg)
+    assert "feedback_wall.md" in out and "600" in out
+
+
+def test_bloat_check_silent_on_normal_description(cfg) -> None:
+    """Порог не должен задевать обычные подробные уроки: 500 — это ~2.5× медианы боевых
+    корпусов, а не «пиши короче»."""
+    p = write_lesson(cfg.memory_dir, "feedback_ok_desc.md", name="Заголовок",
+                     description="я" * 300, topic="testing", body="тело")
+    out = H.ev_bloat_check({"tool_name": "Write", "tool_input": {"file_path": str(p)}}, cfg)
+    assert "feedback_ok_desc.md" not in out
+
+
+def test_bloat_check_description_limit_is_configurable_and_off_at_zero(cfg) -> None:
+    from dataclasses import replace
+    p = write_lesson(cfg.memory_dir, "feedback_wall2.md", name="Заголовок",
+                     description="я" * 600, topic="testing", body="тело")
+    event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
+    assert "feedback_wall2.md" not in H.ev_bloat_check(event, replace(cfg, description_warn_chars=0))
+    assert "feedback_wall2.md" in H.ev_bloat_check(event, replace(cfg, description_warn_chars=100))
 
 
 def test_bloat_check_silent_on_filled_name(cfg) -> None:
