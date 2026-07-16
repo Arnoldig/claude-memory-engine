@@ -238,6 +238,47 @@ class MemoryConfig:
     # Заполняется только `load()`; значение из JSON игнорируется (см. `_coerce`).
     unknown_config_keys: Tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        """Приводит к каноническому виду поля, где описка ОДНОЗНАЧНА по намерению.
+
+        Здесь движок НЕ жалуется, а молча делает то, что человек имел в виду — и это не
+        противоречит правилу «не отменять молча явно заданное», а следует ему: настройка
+        начинает РАБОТАТЬ, а не тихо выпадает. Жалоба уместна там, где намерение неясно
+        (опечатка в ИМЕНИ ключа → `self_check.typo_key_issues` спрашивает). А `.py` не
+        может означать ничего, кроме `py`, — спрашивать не о чем, надо понять.
+
+        Что чинилось молча до этого (каждое воспроизведено):
+          • `retrieve_extensions: [".py"]` → `_path_re` собирал `\\.(?:\\.py)`, то есть
+            требовал `..py` → канал «уроки по пути из запроса» не находил НИЧЕГО;
+          • `watched_dirs: ["app/"]` → там же требовалось `app//` → то же самое;
+          • `lesson_prefixes: ["feedback_"]` → `catalog_generate` клеил `feedback__`, а
+            `stop_check` искал `feedback__*.md` → движок считал, что уроков нет вообще,
+            и Stop-страж переставал видеть записанное (при этом `startswith` в другом
+            месте работал — то есть поведение ещё и расходилось между частями движка);
+          • `staleness_skip_dirs: [".git/"]` → сверка идёт с ГОЛЫМ именем каталога от
+            `os.walk` (`.git`) → пропуск не срабатывал, обход лез в тяжёлые каталоги.
+        Нормализация идёт в `__post_init__`, а не в `_coerce`: инвариант обязан держаться
+        при ЛЮБОМ способе создания конфига (из JSON, из дефолтов, через `replace`), иначе
+        разойдутся боевой путь и тесты. frozen → присваиваем через object.__setattr__.
+        """
+        norm = {
+            # ведущая точка — не часть имени расширения: ".py" → "py"
+            "retrieve_extensions": lambda v: v.strip().lstrip("."),
+            # каталог: "./app/" → "app" (сравнение идёт с путём без хвостового слэша)
+            "watched_dirs": lambda v: v.strip().removeprefix("./").rstrip("/"),
+            # сверка с голым именем каталога от os.walk: ".git/" → ".git"
+            "staleness_skip_dirs": lambda v: v.strip().rstrip("/"),
+            # разделитель движок добавляет сам: "feedback_" → "feedback"
+            "lesson_prefixes": lambda v: v.strip().rstrip("_"),
+        }
+        for field_name, fix in norm.items():
+            raw = getattr(self, field_name, None)
+            if not raw:
+                continue
+            cleaned = tuple(x for x in (fix(str(v)) for v in raw) if x)
+            if cleaned != tuple(raw):
+                object.__setattr__(self, field_name, cleaned)
+
     def topic_titles(self) -> dict:
         return dict(self.topic_order)
 
