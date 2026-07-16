@@ -49,6 +49,26 @@ def test_scan_finds_dead_applies_to(cfg) -> None:
     assert "feedback_live.md" not in broken_names
 
 
+def test_scan_unparsed_finds_undigested_applies_to(cfg) -> None:
+    # Поле есть, глобов нет → урок никогда не всплывёт, а выглядит настроенным.
+    # Скан обязан назвать и файл, и само непонятое значение.
+    write_lesson(cfg.memory_dir, "feedback_bad.md", description="d", applies_to="{путь: app/x.py}")
+    write_lesson(cfg.memory_dir, "feedback_empty.md", description="d", applies_to="")
+    write_lesson(cfg.memory_dir, "feedback_ok.md", description="d", applies_to="app/x.py")     # скаляр — разобран
+    write_lesson(cfg.memory_dir, "feedback_list.md", description="d", applies_to="[app/x.py]")  # список — разобран
+    write_lesson(cfg.memory_dir, "feedback_none.md", description="d")                           # поля нет — не дефект
+    res = dict(ST.scan_unparsed(cfg))
+    assert res == {"feedback_bad.md": "{путь: app/x.py}", "feedback_empty.md": ""}
+
+
+def test_unparsed_goes_into_pending_with_name_and_value(cfg) -> None:
+    # Жалоба должна дойти до человека через _stale_pending (его SessionStart печатает целиком).
+    write_lesson(cfg.memory_dir, "feedback_bad.md", description="d", applies_to="{путь: app/x.py}")
+    assert ST.run(cfg, today=TODAY) is True
+    body = (Path(cfg.memory_dir) / ST.STALE_FILE).read_text(encoding="utf-8")
+    assert "feedback_bad.md" in body and "{путь: app/x.py}" in body
+
+
 def test_write_pending_creates_and_removes(cfg) -> None:
     out = Path(cfg.memory_dir) / ST.STALE_FILE
     assert ST.write_pending(cfg, stale=[("2026-01-01", "feedback_x.md", "d")], broken=[], today=TODAY)

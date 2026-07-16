@@ -39,7 +39,7 @@ from . import (
     subagent_efficiency_log,
     subagent_model_guard,
 )
-from .applies_to import find_lessons_for_path, format_lines
+from .applies_to import _frontmatter, find_lessons_for_path, format_lines, unparsed_applies_to
 from .config import MemoryConfig, get_config
 from .messages import msg
 
@@ -204,26 +204,47 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
     return None
 
 
-def ev_post_record(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str) -> None:
-    """PostToolUse Read|Write|Edit|MultiEdit на файле памяти: запомнить on-disk версию (CAS)
-    и, если это ПРАВКА урока, отметить «урок тронут в этой сессии» (для stale_reconcile)."""
+def ev_post_record(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str) -> Optional[str]:
+    """PostToolUse Read|Write|Edit|MultiEdit на файле памяти: запомнить on-disk версию (CAS),
+    и, если это ПРАВКА урока, отметить «урок тронут в этой сессии» (для stale_reconcile)
+    + пожаловаться, если у только что записанного урока `applies_to:` задан, но не разобран.
+
+    Возвращает текст жалобы (в контекст через additionalContext) или None.
+
+    Почему жалоба ЗДЕСЬ, а не в страже правки: сломанный урок не привязан к правимому
+    файлу — из `ev_pre_edit_guard` он сыпался бы на каждую правку любого файла проекта
+    (шум не по делу). Момент записи урока — единственный, где дефект и его автор рядом:
+    ты сам только что это написал и починишь сразу, не через сессию. Сводку по всей
+    памяти отдельно копит `staleness.scan_unparsed` → `_stale_pending` (там же живут
+    протухшие привязки). Троттлинга нет намеренно: жалоба идёт ровно на свою правку,
+    а если после починки значение всё ещё не разобрано — сказать надо снова.
+    """
     tool_input = event.get("tool_input") or {}
     if not isinstance(tool_input, dict):
-        return
+        return None
     file_path = str(tool_input.get("file_path") or "")
     if not file_path:
-        return
+        return None
     try:
         in_memory = os.path.abspath(file_path).startswith(os.path.abspath(cfg.memory_dir))
     except (OSError, ValueError):
-        return
+        return None
     if not in_memory:
-        return
+        return None
     memory_concurrency.record_seen(session_id, file_path, tmpdir)
     # правка (не чтение) файла-урока → пометить тронутым: stale_reconcile исключит его из
     # кандидатов «показан, но не актуализирован».
-    if str(event.get("tool_name") or "") in ("Write", "Edit", "MultiEdit"):
-        stale_reconcile.record_edited_lesson(session_id, file_path, tmpdir)
+    if str(event.get("tool_name") or "") not in ("Write", "Edit", "MultiEdit"):
+        return None
+    stale_reconcile.record_edited_lesson(session_id, file_path, tmpdir)
+    raw = unparsed_applies_to(_frontmatter(file_path))
+    if raw is None:
+        return None
+    return msg(
+        cfg, "applies_to.unparsed_warning",
+        filename=os.path.basename(file_path), value=raw,
+        hint=msg(cfg, "applies_to.unparsed_hint"),
+    )
 
 
 def _measure(path: Path, unit: str) -> int:
@@ -437,7 +458,7 @@ def main() -> None:
             if r:
                 _deny(r)
         elif event_name == "post-record":
-            ev_post_record(data, cfg, session_id, tmpdir)
+            _emit_post_context(ev_post_record(data, cfg, session_id, tmpdir) or "")
         elif event_name == "bloat-check":
             _emit_post_context(ev_bloat_check(data, cfg))
         elif event_name == "agent-guard":

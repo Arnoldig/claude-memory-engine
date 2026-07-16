@@ -1,10 +1,13 @@
 """Скан устаревания памяти (SessionEnd): без ИИ, без сети.
 
-Две механические проверки → результат в `_stale_pending.md` (его показывает следующий
+Механические проверки → результат в `_stale_pending.md` (его показывает следующий
 SessionStart для повторной проверки):
   (1) уроки с `reverify_after:` < сегодня — просроченные time-bound правила;
   (2) ПРОТУХШИЕ `applies_to`-привязки — glob больше не матчит ни один файл проекта
-      (файл переехал/переименован → урок молча перестал всплывать).
+      (файл переехал/переименован → урок молча перестал всплывать);
+  (3) НЕПОНЯТЫЕ `applies_to`-значения — поле задано, но глобов из него не вышло
+      (`scan_unparsed`). Соседняя полка к (2): там привязка мертва, здесь её вовсе
+      не разобрали — оба случая молча выглядят как «привязок нет».
 
 Stdout у SessionEnd идёт только в debug-лог, поэтому это чистый side-effect через файл,
 а показ — на старте следующей сессии.
@@ -19,7 +22,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .applies_to import _applies_globs, _frontmatter, strip_scalar
+from .applies_to import _applies_globs, _frontmatter, strip_scalar, unparsed_applies_to
 from .config import MemoryConfig, get_config
 from .messages import msg
 
@@ -143,6 +146,27 @@ def scan(
     return stale, broken
 
 
+def scan_unparsed(cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str]]:
+    """[(имя_урока, сырое_значение)] для уроков, где `applies_to:` задан, но глобов из
+    него не вышло — привязка выглядит настроенной, а не работает.
+
+    Отдельной функцией, а не третьим элементом `scan()`: у неё нет ни `today`, ни обхода
+    файлов проекта (дефект чисто в тексте урока), и её независимо зовёт немедленная
+    жалоба на записи урока (hooks_cli.ev_post_record). Лишний обход каталога памяти —
+    ~сотня мелких файлов, цена ничтожна против связности контракта `scan()`.
+    """
+    cfg = cfg or get_config()
+    out: List[Tuple[str, str]] = []
+    for mf in sorted(glob.glob(os.path.join(cfg.memory_dir, "*.md"))):
+        fm = _frontmatter(mf)
+        if not fm:
+            continue
+        raw = unparsed_applies_to(fm)
+        if raw is not None:
+            out.append((os.path.basename(mf), raw))
+    return out
+
+
 def write_pending(
     cfg: Optional[MemoryConfig] = None,
     stale: Optional[List[Tuple[str, str, str]]] = None,
@@ -150,6 +174,7 @@ def write_pending(
     today: Optional[datetime.date] = None,
     archived: Optional[List[Tuple[str, str, int, str]]] = None,
     reconcile: Optional[dict] = None,
+    unparsed: Optional[List[Tuple[str, str]]] = None,
 ) -> bool:
     """Пишет `_stale_pending.md` (или удаляет, если долга нет). Возвращает True, если файл записан.
 
@@ -159,7 +184,7 @@ def write_pending(
     cfg = cfg or get_config()
     today = today or datetime.date.today()
     out_path = Path(cfg.memory_dir) / STALE_FILE
-    if not stale and not broken and not archived and not reconcile:
+    if not stale and not broken and not archived and not reconcile and not unparsed:
         if out_path.exists():
             try:
                 out_path.unlink()
@@ -203,6 +228,14 @@ def write_pending(
         ]
         lines.append(msg(cfg, "staleness.pending_file.broken_hint"))
         lines.append("")
+    if unparsed:
+        lines.append(msg(cfg, "staleness.pending_file.unparsed_section_header"))
+        lines += [
+            msg(cfg, "staleness.pending_file.unparsed_item", name=name, value=value)
+            for name, value in unparsed
+        ]
+        lines.append(msg(cfg, "staleness.pending_file.unparsed_hint"))
+        lines.append("")
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return True
 
@@ -219,4 +252,4 @@ def run(
     cfg = cfg or get_config()
     stale, broken = scan(cfg, today)
     archived = scan_archive_stale(cfg, today)
-    return write_pending(cfg, stale, broken, today, archived, reconcile)
+    return write_pending(cfg, stale, broken, today, archived, reconcile, scan_unparsed(cfg))

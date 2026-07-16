@@ -35,6 +35,39 @@ def test_applies_marker_stable_path_and_stores_lessons(cfg, tmp_path) -> None:
     assert SR.gather_shown("sess1", td) == {"feedback_app.md": {target}}
 
 
+def test_post_record_complains_about_unparsed_applies_to(cfg, tmp_path) -> None:
+    """Немедленная жалоба: записал урок с непонятым applies_to → движок говорит ВСЛУХ
+    (файл + значение), а не молчит до следующей сессии. Момент записи — единственный,
+    где дефект и его автор рядом."""
+    p = write_lesson(cfg.memory_dir, "feedback_bad.md", description="d", applies_to="{путь: app/x.py}")
+    td = str(tmp_path / "tmp")
+    out = H.ev_post_record({"tool_name": "Write", "tool_input": {"file_path": str(p)}}, cfg, "sess1", td)
+    assert out and "feedback_bad.md" in out and "{путь: app/x.py}" in out
+    assert "applies-to-unparsed" in out
+
+
+def test_post_record_silent_on_valid_and_absent_applies_to(cfg, tmp_path) -> None:
+    """Обратная сторона: жалоба не должна шуметь на исправных уроках. Скаляр теперь
+    разбирается → молчим; поля нет вовсе → это не дефект, тоже молчим."""
+    td = str(tmp_path / "tmp")
+    ok = write_lesson(cfg.memory_dir, "feedback_ok.md", description="d", applies_to="app/x.py")
+    none = write_lesson(cfg.memory_dir, "feedback_none.md", description="d")
+    assert H.ev_post_record({"tool_name": "Write", "tool_input": {"file_path": str(ok)}}, cfg, "s", td) is None
+    assert H.ev_post_record({"tool_name": "Write", "tool_input": {"file_path": str(none)}}, cfg, "s", td) is None
+    # чтение (не правка) урока жалобу не поднимает — жалуемся на СВОЮ запись
+    bad = write_lesson(cfg.memory_dir, "feedback_bad.md", description="d", applies_to="[]")
+    assert H.ev_post_record({"tool_name": "Read", "tool_input": {"file_path": str(bad)}}, cfg, "s", td) is None
+
+
+def test_post_record_silent_outside_memory_dir(cfg, tmp_path) -> None:
+    """Проектный файл, случайно содержащий applies_to, — не урок; жалоба не его дело."""
+    proj = Path(cfg.project_root) / "note.md"
+    proj.write_text("---\napplies_to: []\n---\n", encoding="utf-8")
+    out = H.ev_post_record({"tool_name": "Write", "tool_input": {"file_path": str(proj)}}, cfg, "s",
+                           str(tmp_path / "tmp"))
+    assert out is None
+
+
 def test_session_marker_format_denied(cfg, tmp_path) -> None:
     long_marker = "<!-- 2026-06-17 " + "x" * 250 + " -->"
     event = {"tool_name": "Write",

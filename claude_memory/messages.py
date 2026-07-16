@@ -24,6 +24,8 @@ DEFAULT_MESSAGES = {
 
     "applies_to.gate.footer": "\nAfter reading, repeat the edit — it will go through. [applies-to-gate]",
     "applies_to.gate.header": "Lessons attached to this file (applies_to) — read BEFORE your first edit (shown once per session per file):\n",
+    "applies_to.unparsed_hint": "Accepted forms: inline list `[\"a/b.py\", \"c/*.js\"]`, YAML list of `- ` items, or a single glob string `a/b.py`. An empty value means the binding was declared but never filled in.",
+    "applies_to.unparsed_warning": "[memory] {filename}: `applies_to:` is set to `{value}` but no glob was parsed from it — this lesson will NEVER surface on file edits, and the engine cannot tell that apart from having no binding at all. {hint} [applies-to-unparsed]",
     "archive.precedent_block_header": "\n## {date_str} ({source_name})\n\n{block_text}\n",
     "archive.precedent_file_header": "# {keyword} — {year} Q{quarter}\n\n",
     "archive.precedent_pointer_line": "**{keyword} {date_str}:** {pointer} [{qrelative}]({qrelative}).",
@@ -109,6 +111,9 @@ DEFAULT_MESSAGES = {
     "staleness.pending_file.stale_section_header": "## Stale rules (reverify_after < today)",
     "staleness.pending_file.reconcile_section_header": "## Re-verify for staleness (lessons attached to files changed last session, not updated)",
     "staleness.pending_file.reconcile_item": "- **{lesson}** (changed: {files}) — did last session's change make it false? Fix / mark stale / replace.",
+    "staleness.pending_file.unparsed_section_header": "## Unparsed applies_to (value set, no glob parsed — these lessons never surface on edits)",
+    "staleness.pending_file.unparsed_item": "- **{name}**: `{value}`",
+    "staleness.pending_file.unparsed_hint": "Accepted forms: inline list `[\"a/b.py\", \"c/*.js\"]`, YAML list of `- ` items, or a single glob string `a/b.py`. An empty value means the binding was declared but never filled in.",
     "stale_reconcile.item": "- {lesson} (attached to: {files})",
     "stale_reconcile.related_header": "Possibly related by meaning (no path binding — also re-check for staleness):",
     "stale_reconcile.related_item": "- {lesson} ({label})",

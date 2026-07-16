@@ -57,28 +57,65 @@ def _frontmatter(path: str) -> str:
     return head.split("\n---", 1)[0]
 
 
+def applies_to_value(fm: str) -> Optional[str]:
+    """Сырое значение `applies_to:` (текст после двоеточия, обрезанный) или None, если
+    поля нет вовсе. Пустая строка = поле ЕСТЬ с пустым значением (YAML-список ниже либо
+    объявленная, но не заполненная привязка) — отличать её от None обязательно: на этом
+    различии стоит жалоба `unparsed_applies_to`."""
+    m = _APPLIES_RE.search(fm)
+    return None if m is None else m.group(1).strip()
+
+
 def _applies_globs(fm: str) -> List[str]:
-    """Глобы из `applies_to:` — инлайн-список `[a, b]` ИЛИ YAML-список из `- `-строк.
+    """Глобы из `applies_to:` — инлайн-список `[a, b]`, одиночный глоб строкой ИЛИ
+    YAML-список из `- `-строк.
 
     Ведущий [ \\t]* ловит И top-level applies_to, И вложенный под `metadata:` (нативный
     формат памяти harness). После `:` — [ \\t]* (не \\s*), иначе потеряется 1-й элемент
     многострочного списка.
+
+    Порядок веток задан ЗНАЧЕНИЕМ, а не догадкой: `[` → инлайн-список; непустой скаляр →
+    один глоб; ПУСТОЕ значение → YAML-список ниже. Скалярная ветка обязана стоять между
+    ними и проверять непустоту: до неё `applies_to: "app/x.py"` молча уходил в разбор
+    списка, первая же строка ниже (обычно `metadata:`) обрывала цикл → [] без единого
+    слова, неотличимо от «уроков нет» (дыра с рождения модуля).
     """
-    m = _APPLIES_RE.search(fm)
-    if not m:
+    inline = applies_to_value(fm)
+    if inline is None:
         return []
-    inline = m.group(1).strip()
     if inline.startswith("["):
         inner = inline.strip("[]")
-        return [g.strip().strip("'\"") for g in inner.split(",") if g.strip()]
+        return [g for g in (strip_scalar(x) for x in inner.split(",")) if g]
+    if inline.startswith("{"):
+        # YAML-отображение (или bash-подобное `{a,b}/x.py`) — глобом НЕ бывает: ни fnmatch,
+        # ни glob фигурные скобки не раскрывают. Отдаём пусто → сработает жалоба
+        # `unparsed_applies_to` с верным диагнозом. Без этой ветки скаляр ниже проглотил бы
+        # `{…}` как «глоб», тот не совпал бы ни с чем и уехал в отчёт ПРОТУХШИХ привязок
+        # («путь не найден — файл переехал?») — диагноз мимо, чинить будут не то.
+        return []
+    if inline:
+        return [g for g in (strip_scalar(inline),) if g]
     globs: List[str] = []
-    for line in fm[m.end():].splitlines():
+    for line in fm[_APPLIES_RE.search(fm).end():].splitlines():
         ls = line.strip()
         if ls.startswith("- "):
-            globs.append(ls[2:].strip().strip("'\""))
+            globs.append(strip_scalar(ls[2:]))
         elif ls and not ls.startswith("#"):
             break
     return [g for g in globs if g]
+
+
+def unparsed_applies_to(fm: str) -> Optional[str]:
+    """Сырое значение `applies_to:`, если поле ЕСТЬ, но глобов из него НЕ вышло; иначе None.
+
+    Опора обеих жалоб движка (немедленной на записи урока и сводной в _stale_pending).
+    Такой урок никогда не всплывёт на правке — а выглядит настроенным. Молчать здесь
+    нельзя: пустой результат разбора неотличим от «привязок нет», и дефект живёт годами
+    (ровно так прожил скалярный `applies_to`)."""
+    raw = applies_to_value(fm)
+    if raw is None or _applies_globs(fm):
+        return None
+    return raw
 
 
 def _candidates(target: str, project_root: str) -> set:
