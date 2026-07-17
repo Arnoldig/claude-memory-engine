@@ -6,9 +6,14 @@
 #   2. copies the hooks wrapper to     <project>/.claude/hooks/cme_hook.sh
 #   3. creates the config              <project>/.claude/claude-memory.config.json (if absent)
 #   4. APPENDS the hook registrations to <project>/.claude/settings.json (yours are kept)
-#   5. creates the memory directory if it does not exist yet
+#   5. LOCATES the lessons directory — the one Claude Code's built-in auto-memory writes to.
+#      It is created only when you pass MEMORY_DIR explicitly: on a derived path the script
+#      warns instead, because an empty twin next to the real folder would mask the very
+#      mistake the self-check is meant to report.
 #
 # Your lessons are NOT part of the engine and are NOT copied; keep them separately (private).
+# The engine does not create lessons at all — Claude Code's auto-memory writes them; the
+# engine reads, indexes and guards them.
 #
 # Usage:
 #   ./install.sh [PROJECT_DIR] [MEMORY_DIR]
@@ -22,7 +27,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Печатаем ВЕСЬ головной комментарий: со строки 2 и пока строки начинаются с `#`.
+  # Раньше диапазон был зашит номерами (`2,16p`) — и это молча ломалось при любой правке
+  # шапки: добавили строку, и хвост справки (весь раздел Usage) переставал печататься.
+  # Ошибиться было нечем себя проверить: `--help` продолжал что-то выводить, просто не всё.
+  # Признак «строка комментария» не зависит от длины шапки и не требует синхронизации.
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
   exit 0
 fi
 

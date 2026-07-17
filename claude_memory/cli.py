@@ -260,7 +260,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_uninstall.set_defaults(func=cmd_uninstall)
 
-    p_doctor = sub.add_parser("doctor", help="config self-check (message placeholders)")
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="config self-check: typos, broken patterns/dates, divergence from Claude Code's "
+             "settings (for the full setup picture run: python3 -m claude_memory.self_check)",
+    )
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_config = sub.add_parser("config", help="print the whole config or one field: config [get FIELD]")
