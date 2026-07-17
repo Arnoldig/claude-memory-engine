@@ -35,6 +35,36 @@ def _init(project: Path, memory: Path) -> int:
     return cli.main(["init", str(project), str(memory)])
 
 
+def test_derived_path_warning_suggests_a_command_that_actually_runs(tmp_path, monkeypatch, capsys):
+    """Подсказка восстановления обязана быть ИСПОЛНИМОЙ командой, а не правдоподобной.
+
+    В 0.10.0 она советовала `claude-memory init --memory-dir <path>` — флага не существует
+    (путь позиционный), argparse падал с «unrecognized arguments». То есть человеку, у
+    которого путь и так не определился, предлагали команду, которая не запускается. Тот же
+    класс, что и весь релиз: сообщение выглядит помощью, а помощи не оказывает.
+
+    Тест дословно разбирает предложенную команду ТЕМ ЖЕ парсером — правдоподобие не
+    засчитывается."""
+    import argparse
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    project = tmp_path / "proj"
+    project.mkdir()
+
+    args = argparse.Namespace(memory_dir=None)
+    _md, warning = cli._resolve_memory_dir(args, project)
+    assert "DERIVED" in warning, "неподтверждённый путь обязан сопровождаться оговоркой"
+
+    suggested = next(l.strip() for l in warning.splitlines() if l.strip().startswith("claude-memory init"))
+    argv = shlex.split(suggested.replace("<correct path>", str(tmp_path / "real-memory")))
+    assert argv[0] == "claude-memory"
+
+    # Разбираем ТЕМ ЖЕ парсером: несуществующий флаг → SystemExit(2), тест краснеет.
+    ns = cli.build_parser().parse_args(argv[1:])
+    assert ns.command == "init"
+    assert ns.memory_dir == str(tmp_path / "real-memory")
+
+
 def test_init_creates_wrapper_config_settings(tmp_path):
     project, memory = tmp_path / "proj", tmp_path / "mem"
     assert _init(project, memory) == 0
