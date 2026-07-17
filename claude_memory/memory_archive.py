@@ -10,7 +10,7 @@
    окна прецедентов: маркеры однострочны и плодятся быстро.
 
 Ключевое слово карточки (`<keyword>`) и фраза-указатель берутся из конфига
-(MemoryConfig.precedent_keyword / precedent_pointer) — дефолты русские, перекрываются.
+(MemoryConfig.precedent_keyword / precedent_pointer) — дефолты английские (языко-нейтральны с 0.11.0), перекрываются проектным конфигом.
 Парсинг — регэкспами, без зависимостей (локальный `pytest`, без PyYAML).
 """
 from __future__ import annotations

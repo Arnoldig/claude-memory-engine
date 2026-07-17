@@ -4,6 +4,35 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] — 2026-07-17
+
+### ⚠ BREAKING CHANGE
+- **`precedent_keyword` / `precedent_pointer` defaults are now English**: `"Прецедент"` / `"перенесён в"` → `"Precedent"` / `"moved to"`.
+
+  **Who is affected:** only those who never set these fields in their config AND write precedent cards in Russian. **What to do:** add two lines to `.claude/claude-memory.config.json` —
+  ```json
+  "precedent_keyword": "Прецедент",
+  "precedent_pointer": "перенесён в",
+  ```
+  No data is touched, no lesson is renamed. The engine also **says this out loud**: if a file still holds cards with the old Russian keyword while `precedent_keyword` sits at the library default, `bloat-check` warns on the next edit of that file with the exact fix (`bloat.precedent_legacy_keyword`) — a breaking change nobody notices is the very class this release is against.
+
+  **Why it had to happen.** `memory_archive._precedent_re` is built from `re.escape(precedent_keyword)`. A Russian default meant that for EVERYONE writing cards in English who never touched the config, precedent auto-archiving never fired ONCE and `precedent_count_warn` counted NOTHING — silently, with the mechanism switched on. This is a "default that never works" — the same class as `~/.claude/memory` in 0.10.0 (a directory nobody writes to). The project's own rule ("a generic library default is language-neutral; language specifics belong in the project config") was written down in memory but checked by nothing — it is now pinned by `test_recogniser_defaults_are_language_neutral`. The Russian forms moved to `examples/claude-memory.config.ru.json`, with localisation pinned by its own test.
+
+  How deep it sat: NINE of the engine's own tests silently lived on the Russian default — meaning the English path (what you get out of the box) was tested by nothing at all.
+
+### Fixed
+- **The Russian example config had fallen six releases behind.** `examples/claude-memory.config.ru.json` translated 76 of 133 messages: untranslated were the whole self-check (17), everything about staleness (11), archive pruning (6), diagnostics (5), the "could not parse this field" complaints (3) — precisely what 0.9.3→0.10.1 were built for. Nothing crashed: `msg()` falls back to the English default, so the "localised example" silently produced output in two languages at once. The English example was edited eight times running; the Russian one had not moved since 0.9.2, and no test ever looked inside the `messages` block. All 133 are now translated and pinned by a test.
+- **Machine tags and a placeholder were lost in existing translations.** Eight translations had dropped their `[memory]`-style channel tag (a machine label, not prose), and one had a hard-coded CLI command instead of the `{extract_cmd}` placeholder — it would have gone stale on the first rename with nobody noticing.
+- **A dead key in the message catalogue.** `stale_reconcile.reminder` survived the mechanism's replacement in 0.8.0 and hung around unused. Key names are a PUBLIC contract (consumers translate them by name), so a dead key turns someone's translation into a silent no-op: `self_check.message_placeholder_issues` skips orphan keys by design. The `test_every_msg_key_in_code_exists` lock was ONE-WAY (code → defaults); the reverse lock is added. Note for consumers: if you translated this key, your override becomes an orphan — harmless, but it does nothing (the key has been dead since 0.8.0).
+- **The copy of the close rule in tests had drifted from the code.** `tests/conftest.py::RU_EN_CLOSE_PATTERN` knew six closing keywords instead of nine: 0.10.0 taught the default the `resolve` family, the copy was not updated — so part of the suite ran against a rule that does not exist in production. It is now compared by BEHAVIOUR (the copy is localised and must differ as a string, but not in the set of forms it recognises).
+- **The README module table did not know about `lesson_files`, `claude_code_env` or `model_registry_guard`** — the README quietly lied about what the engine is made of. Caught by the owner by eye; pinned by "every package module is mentioned in the README" (both languages).
+
+### Added
+- **CI runs the tests on EVERY push and pull request** (`.github/workflows/tests.yml`). Previously the suite ran ONLY on release (`publish.yml`, `on: release published`): a pull request merged having verified nothing, and breakage surfaced at release time — when rolling back costs the most. It looked fine because there were no red checks, not because there were green ones.
+- **Python matrix: 3.9 and latest.** `pyproject.toml` promises `>=3.9`, while CI ran `3.x` — so the compatibility promise was checked by nobody: 3.10+ syntax would pass green and break on the user's machine at install time. The invariant "CI runs the oldest supported version" is pinned by a test.
+- `tests/test_repo_invariants.py` — a new file for one class of trap: a value must match in TWO places, nothing checks it, and the divergence is silent. It covers: version in `pyproject.toml` vs `__init__.py`; the `tests-NNN` badge vs the real count (during 0.10.0→0.10.1 that badge was hand-edited four times and went stale each time); the README module table; the close-rule copy in conftest; the Python matrix in CI. The rule now written into the project's memory: **a trap that has sprung twice must become a check, not another paragraph in a note.**
+- +10 tests (403 vs 393).
+
 ## [0.10.1] — 2026-07-17
 ### Fixed
 - **The recovery hint suggested a command that does not exist.** When the lessons path could not be confirmed, `claude-memory init` printed "re-run: `claude-memory init --memory-dir <correct path>`". There is no `--memory-dir` flag — the path is positional, and argparse answered `unrecognized arguments`. So the person whose path had already failed to resolve was handed a command that will not run: the message looked like help without being help — the same class of defect as the whole 0.10.0 release. It now prints a runnable form (`claude-memory init <project> <path>`), pinned by a test that parses the suggested command with the SAME parser — plausibility does not count (`test_cli.test_derived_path_warning_suggests_a_command_that_actually_runs`, red on 0.10.0).

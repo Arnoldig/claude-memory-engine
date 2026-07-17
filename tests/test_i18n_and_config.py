@@ -192,7 +192,11 @@ def test_precedent_count_warn(cfg) -> None:
     assert "3" in _bloat_file(cfg2, "feedback_p.md")          # ≥3 живых блока
     two = "".join(f"**Precedent {d:%Y-%m-%d}:** разбор\n\n" for d in days[:2])
     (Path(cfg.memory_dir) / "feedback_p.md").write_text(two, encoding="utf-8")
-    assert "living precedent" not in _bloat_file(cfg2, "feedback_p.md")  # 2 блока — без счётчика
+    # Сверяем с РЕАЛЬНОЙ подстрокой сообщения, а не с выдуманной. Первая правка этого
+    # теста подставила сюда `"living precedent"` — строки, которой нет ни в одном
+    # сообщении движка: assert стал невыполнимым и не упал бы никогда, в том числе если
+    # счётчик начнёт срабатывать на двух блоках. Тест-обманка на месте живой проверки.
+    assert "'Precedent YYYY-MM-DD' blocks" not in _bloat_file(cfg2, "feedback_p.md")
 
 
 def test_precedent_keyword_localised_by_project(cfg) -> None:

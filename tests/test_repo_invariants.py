@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -89,7 +90,7 @@ def test_tests_badge_matches_real_count(readme: Path) -> None:
     claimed = int(m.group(1))
 
     out = subprocess.run(
-        ["python3", "-m", "pytest", str(ROOT / "tests"), "--collect-only", "-q"],
+        [sys.executable, "-m", "pytest", str(ROOT / "tests"), "--collect-only", "-q"],
         capture_output=True, text=True, timeout=120, cwd=str(ROOT),
         env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": ""},
     ).stdout

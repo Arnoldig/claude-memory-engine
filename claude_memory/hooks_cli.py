@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -267,6 +268,12 @@ def _unit_word(cfg: MemoryConfig, unit: str) -> str:
     return msg(cfg, "unit.chars" if unit == "chars" else "unit.bytes")
 
 
+# Прежний (до 0.11.0) русский дефолт слова-опознавателя прецедента и дефолт нынешний.
+# Нужны детектору «проект полагался на старый дефолт» — см. ev_bloat_check.
+_PRECEDENT_KEYWORD_DEFAULT = MemoryConfig.__dataclass_fields__["precedent_keyword"].default
+_LEGACY_PRECEDENT_RE = re.compile(r"\*\*Прецедент\s+\d{4}-\d{2}-\d{2}")
+
+
 def _is_precedent_file(name: str, cfg: MemoryConfig) -> bool:
     """Файл-накопитель прецедентов (кандидат на авто-архивацию старых карточек).
 
@@ -386,11 +393,21 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             warnings.append(msg(cfg, "bloat.lesson_over", filename=name, size=size, unit=_unit_word(cfg, "bytes"), limit=limit))
         if cfg.precedent_count_warn:
             try:
-                cnt = memory_archive.count_real_precedents(p.read_text(encoding="utf-8"), cfg=cfg)
+                raw_p = p.read_text(encoding="utf-8")
             except OSError:
-                cnt = 0
+                raw_p = ""
+            cnt = memory_archive.count_real_precedents(raw_p, cfg=cfg) if raw_p else 0
             if cnt >= cfg.precedent_count_warn:
                 warnings.append(msg(cfg, "bloat.precedent_count", filename=name, count=cnt, days=cfg.precedent_archive_days))
+            # Детектор ломающей смены дефолта 0.11.0: карточки написаны ПРЕЖНИМ русским
+            # словом, а `precedent_keyword` остался дефолтным (английским) — значит проект
+            # полагался на старый дефолт, и авто-архивация у него молча перестала видеть
+            # карточки. Ровно тот класс, против которого весь релиз: смена, о которой
+            # пострадавший узнаёт из CHANGELOG или не узнаёт никогда.
+            # Стоит НОЛЬ лишнего IO: файл уже прочитан строкой выше. Границу self_check не
+            # трогаем — та читает только конфиги и метаданные, а здесь путь записи.
+            if cfg.precedent_keyword == _PRECEDENT_KEYWORD_DEFAULT and _LEGACY_PRECEDENT_RE.search(raw_p):
+                warnings.append(msg(cfg, "bloat.precedent_legacy_keyword", filename=name))
     return "\n".join(warnings)
 
 
