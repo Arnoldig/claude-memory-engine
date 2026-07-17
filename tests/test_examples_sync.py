@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,70 @@ def test_neutral_defaults_mirror_the_library(field: str) -> None:
         f"  код:    {default!r}\n"
         f"Пример копируют себе пользователи — расхождение молча возвращает им старое поведение."
     )
+
+
+RU_EXAMPLE = ROOT / "examples" / "claude-memory.config.ru.json"
+
+
+def test_ru_example_translates_every_message() -> None:
+    """Локализованный пример переводит ВСЕ фразы каталога — иначе он врёт названием.
+
+    Отставал на шесть релизов: 76 переводов из 133. Не переведены были целыми блоками
+    ровно те, ради которых делались последние выпуски (вся самопроверка, всё про
+    устаревание, уборка архива, жалобы «не понял поле»). Ничего не падало: `msg()` штатно
+    подставляет английский дефолт (fail-soft), поэтому «русский пример» молча отдавал вывод
+    на двух языках вперемешку, и это неотличимо от нормы.
+
+    Почему не поймали раньше: `test_example_has_no_unknown_keys` смотрит только ключи
+    ВЕРХНЕГО уровня, внутрь блока `messages` не заглядывал никто.
+    """
+    from claude_memory.messages import DEFAULT_MESSAGES
+
+    ru = _load(RU_EXAMPLE).get("messages", {})
+    missing = sorted(set(DEFAULT_MESSAGES) - set(ru))
+    assert missing == [], (
+        f"ru-пример не переводит {len(missing)} фраз: {missing[:8]}…\n"
+        f"Русскоязычный пользователь получит их по-английски — молча."
+    )
+
+
+@pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
+def test_example_messages_are_valid_overrides(path: Path) -> None:
+    """Переводы в примере: ключи существуют, плейсхолдеры и машинные метки сохранены.
+
+    Три способа сломать перевод молча, и все три уже случались в этом проекте:
+      • ключ-сирота (переименовали в коде) → `msg()` его никогда не спросит, перевод мёртв;
+      • ЛИШНИЙ плейсхолдер `{x}` → `.format()` уронит подстановку; это ровно контракт
+        движка (`self_check.message_placeholder_issues`: плейсхолдеры override ⊆ дефолта).
+        Отсутствие плейсхолдера — НЕ ошибка: перевод вправе не показывать значение, если
+        так лучше по-русски (напр. `archive.precedent_file_header` пишет «Прецеденты
+        сессий» вместо `{keyword}` — множественное число вместо единственного);
+      • потерянная метка `[memory]`/`[stop-lessons]` — это машинный ярлык канала, не проза.
+        Замер при переводе 0.11.0: метка была потеряна в ВОСЬМИ существующих переводах.
+
+    Проверяем ровно контракт движка, не строже: тест, придирчивее кода, заставляет
+    подгонять правильные переводы под чужую придирку.
+    """
+    from claude_memory.messages import DEFAULT_MESSAGES
+
+    ph = lambda s: set(re.findall(r"\{([^{}]+)\}", s))
+    tags = lambda s: set(re.findall(r"\[[a-z0-9 -]+\]", s))
+
+    orphans, bad_ph, bad_tags = [], [], []
+    for key, text in (_load(path).get("messages") or {}).items():
+        default = DEFAULT_MESSAGES.get(key)
+        if default is None:
+            orphans.append(key)
+            continue
+        extra = ph(text) - ph(default)
+        if extra:
+            bad_ph.append((key, sorted(extra)))
+        if tags(default) - tags(text):
+            bad_tags.append((key, sorted(tags(default) - tags(text))))
+
+    assert orphans == [], f"{path.name}: ключей нет в каталоге движка: {orphans}"
+    assert bad_ph == [], f"{path.name}: плейсхолдеры, которых нет в дефолте: {bad_ph}"
+    assert bad_tags == [], f"{path.name}: потеряны машинные метки: {bad_tags}"
 
 
 def test_example_close_pattern_knows_all_nine_github_keywords() -> None:

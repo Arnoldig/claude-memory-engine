@@ -61,9 +61,9 @@ def test_staleness_skipdir_binding_not_false_broken(cfg, tmp_path) -> None:
 def test_count_real_precedents_paren_and_slug_dates(cfg) -> None:
     from claude_memory.memory_archive import count_real_precedents
     text = (
-        "**Прецедент #61 (2026-04-27):** a\n\n"
-        "**Прецедент 2026-05-02:** b\n\n"
-        "**Прецедент FW-1 (#audit-2026-06-11-F, 2026-06-12):** c\n"
+        "**Precedent #61 (2026-04-27):** a\n\n"
+        "**Precedent 2026-05-02:** b\n\n"
+        "**Precedent FW-1 (#audit-2026-06-11-F, 2026-06-12):** c\n"
     )
     assert count_real_precedents(text, cfg) == 3
 
@@ -74,7 +74,7 @@ def test_archive_idempotent_custom_archive_dir(cfg) -> None:
     from claude_memory import memory_archive as ma
     cfg2 = replace(cfg, archive_dir_name="vault")
     p = Path(cfg.memory_dir) / "feedback_p.md"
-    p.write_text("---\nname: p\n---\nintro\n\n**Прецедент 2020-01-15:** old.\n", encoding="utf-8")
+    p.write_text("---\nname: p\n---\nintro\n\n**Precedent 2020-01-15:** old.\n", encoding="utf-8")
     today = datetime.date(2026, 6, 18)
     r1 = ma.archive_old_precedents(p, today=today, threshold_days=30, cfg=cfg2)
     r2 = ma.archive_old_precedents(p, today=today, threshold_days=30, cfg=cfg2)
@@ -89,7 +89,7 @@ def test_archive_idempotent_custom_archive_dir(cfg) -> None:
 def test_precedent_head_uses_card_date_not_slug(cfg) -> None:
     from claude_memory.memory_archive import _precedent_head_re
     m = _precedent_head_re(cfg).search(
-        "**Прецедент FW-1 (#audit-2026-06-11-F, 2026-06-12, x):** body"
+        "**Precedent FW-1 (#audit-2026-06-11-F, 2026-06-12, x):** body"
     )
     assert m and m.group(1) == "2026-06-12"
 
@@ -100,7 +100,7 @@ def test_archive_card_date_picks_right_quarter(cfg) -> None:
     # слаг-дата 2026-03-30 (Q1), реальная дата карточки 2026-04-02 (Q2)
     p.write_text(
         "---\nname: q\n---\nintro\n\n"
-        "**Прецедент CROSS-1 (#audit-2026-03-30-X, 2026-04-02):** body.\n",
+        "**Precedent CROSS-1 (#audit-2026-03-30-X, 2026-04-02):** body.\n",
         encoding="utf-8",
     )
     ma.archive_old_precedents(p, today=datetime.date(2026, 12, 1), threshold_days=30, cfg=cfg)
@@ -115,13 +115,13 @@ def test_archive_multiparagraph_card_full(cfg) -> None:
     p = Path(cfg.memory_dir) / "feedback_mp.md"
     p.write_text(
         "---\nname: mp\n---\nintro\n\n"
-        "**Прецедент 2020-01-15 — тема:** para1\n\npara2 details\n\n- item A\n",
+        "**Precedent 2020-01-15 — тема:** para1\n\npara2 details\n\n- item A\n",
         encoding="utf-8",
     )
     ma.archive_old_precedents(p, today=datetime.date(2026, 6, 18), threshold_days=30, cfg=cfg)
     src = p.read_text(encoding="utf-8")
     arc = (Path(cfg.memory_dir) / "archive" / "precedents-2020-Q1.md").read_text(encoding="utf-8")
-    assert "перенесён в" in src and "para2 details" not in src and "item A" not in src
+    assert "moved to" in src and "para2 details" not in src and "item A" not in src
     assert "para2 details" in arc and "item A" in arc
 
 
@@ -130,8 +130,8 @@ def test_archive_multiparagraph_stops_at_next_card(cfg) -> None:
     p = Path(cfg.memory_dir) / "feedback_two.md"
     p.write_text(
         "---\nname: two\n---\nintro\n\n"
-        "**Прецедент 2020-01-15:** old1\n\ntail1\n\n"
-        "**Прецедент 2020-02-20:** old2\n\ntail2\n",
+        "**Precedent 2020-01-15:** old1\n\ntail1\n\n"
+        "**Precedent 2020-02-20:** old2\n\ntail2\n",
         encoding="utf-8",
     )
     ma.archive_old_precedents(p, today=datetime.date(2026, 6, 18), threshold_days=30, cfg=cfg)
@@ -145,7 +145,7 @@ def test_archive_multiparagraph_stops_at_next_card(cfg) -> None:
 def test_archive_dedup_on_crash_rerun(cfg) -> None:
     from claude_memory import memory_archive as ma
     p = Path(cfg.memory_dir) / "feedback_d.md"
-    original = "---\nname: d\n---\nintro\n\n**Прецедент 2020-01-15:** card body.\n"
+    original = "---\nname: d\n---\nintro\n\n**Precedent 2020-01-15:** card body.\n"
     p.write_text(original, encoding="utf-8")
     today = datetime.date(2026, 6, 18)
     ma.archive_old_precedents(p, today=today, threshold_days=30, cfg=cfg)
