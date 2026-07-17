@@ -178,6 +178,47 @@ def test_bloat_check_warns_on_empty_name_in_kebab_lesson(cfg) -> None:
     assert "kebab-case-lesson.md" in H.ev_bloat_check(event, cfg)
 
 
+def test_bloat_check_silent_on_files_in_subdirs(cfg) -> None:
+    """Файл в ПОДПАПКЕ memory_dir — не урок, даже с законным именем урока.
+
+    Регрессия 0.10.0: нудж звал `is_lesson_file` на голом basename произвольного пути, и
+    предупреждение прилетало на черновик из `drafts/`, которого корпус памяти не видит
+    вовсе (`lesson_paths` обходит только корень). Один модуль давал ДВА ответа на «что
+    такое урок» — ровно то расхождение, ради искоренения которого он и заведён.
+    У боевого проекта такая подпапка есть.
+    """
+    sub = Path(cfg.memory_dir) / "drafts"
+    sub.mkdir()
+    p = write_lesson(str(sub), "kakoy-to-chernovik.md", name='""', topic="x", body="черновик")
+    out = H.ev_bloat_check({"tool_name": "Write", "tool_input": {"file_path": str(p)}}, cfg)
+    assert out == "", f"нудж прилетел на черновик в подпапке: {out}"
+
+
+def test_lesson_path_and_lesson_paths_never_disagree(cfg) -> None:
+    """`is_lesson_path` и `lesson_paths` обязаны отвечать ОДИНАКОВО на любой файл.
+
+    Пока эти двое сходятся, «что такое урок» остаётся ОДНИМ понятием. Разошлись —
+    вернулся баг, ради которого модуль и заведён."""
+    from claude_memory import lesson_files as LF
+
+    md = Path(cfg.memory_dir)
+    (md / "drafts").mkdir()
+    (md / cfg.archive_dir_name).mkdir()
+    candidates = [
+        md / "kebab-lesson.md", md / "feedback_x.md", md / cfg.core_file,
+        md / cfg.catalog_file, md / "_private.md", md / "notes.txt",
+        md / "drafts" / "chernovik.md", md / cfg.archive_dir_name / "staryj.md",
+    ]
+    for c in candidates:
+        c.write_text("---\nname: x\n---\nтело\n", encoding="utf-8")
+
+    from_paths = {str(p) for p in LF.lesson_paths(cfg)}
+    for c in candidates:
+        assert LF.is_lesson_path(str(c), cfg) == (str(c) in from_paths), (
+            f"is_lesson_path и lesson_paths разошлись на {c}"
+        )
+
+
 @pytest.mark.parametrize("base", ["MEMORY.md", "CATALOG.md", "_private.md"])
 def test_bloat_check_silent_on_non_lessons(cfg, base: str) -> None:
     """Расширение не должно распространиться на ядро/указатель/приватные: указатель

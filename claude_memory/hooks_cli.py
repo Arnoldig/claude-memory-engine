@@ -41,7 +41,7 @@ from . import (
 )
 from .applies_to import _frontmatter, find_lessons_for_path, format_lines
 from .config import MemoryConfig, get_config
-from .lesson_files import is_lesson_file
+from .lesson_files import is_lesson_path
 from .messages import msg
 
 
@@ -333,7 +333,11 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
     # Признак урока — общий (`lesson_files`), а не приставка: до 0.10.0 урок без приставки
     # рос без единого предупреждения, потому что нудж его не замечал (та же слепота, что
     # у стража).
-    if is_lesson_file(name, cfg) and name not in cfg.size_exempt:
+    # `is_lesson_path`, а НЕ `is_lesson_file`: у нас на руках ПУТЬ, а имя — половина
+    # признака. Файл в подпапке (`drafts/`) носит законное имя урока, но уроком не является
+    # — корпус памяти обходит только корень memory_dir. В 0.10.0 здесь стоял basename-вариант,
+    # и нудж прилетал на черновики.
+    if is_lesson_path(file_path, cfg) and name not in cfg.size_exempt:
         try:
             raw = p.read_text(encoding="utf-8")
         except OSError:
@@ -373,7 +377,7 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
     # приставкой»: иначе kebab-урок рос бы без предупреждений.
     if (
         (any(name.startswith(pref) for pref in cfg.size_warn_prefixes)
-         if cfg.size_warn_prefixes is not None else is_lesson_file(name, cfg))
+         if cfg.size_warn_prefixes is not None else is_lesson_path(file_path, cfg))
         and name not in cfg.size_exempt
     ):
         size = p.stat().st_size

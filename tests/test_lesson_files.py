@@ -101,6 +101,20 @@ def test_all_consumers_see_the_same_set(cfg) -> None:
     assert catalog == canonical, "каталог видит не тот набор, что единый источник истины"
     assert retriever == canonical, "ретривер видит не тот набор, что единый источник истины"
 
-    # страж: свежайший урок берётся из ТОГО ЖЕ набора
-    newest = max(os.path.getmtime(p) for p in LF.lesson_paths(cfg))
-    assert SC.newest_lesson_mtime(cfg) == newest, "страж видит не тот набор, что каталог"
+    # Страж: сверяем НАБОР ПОЭЛЕМЕНТНО, а не одно число. Сравнение только max(mtime) слабое:
+    # страж мог бы смотреть на ДРУГОЙ набор с тем же максимумом и остаться зелёным. Поэтому
+    # щупаем каждый файл — делаем его самым свежим и требуем, чтобы страж это заметил.
+    stamp = 2_000_000_000
+    for i, path in enumerate(LF.lesson_paths(cfg)):
+        os.utime(path, (stamp + i, stamp + i))
+        assert SC.newest_lesson_mtime(cfg) == float(stamp + i), (
+            f"страж не увидел урок {os.path.basename(path)} — его набор ýже каталога"
+        )
+
+    # ...и обратное: не-урок, ставший самым свежим, страж видеть НЕ должен — иначе он снимет
+    # блок за человека (указатель движок пересобирает сам на каждом старте).
+    for base in (cfg.core_file, cfg.catalog_file, "_private.md"):
+        os.utime(os.path.join(cfg.memory_dir, base), (stamp + 999, stamp + 999))
+    assert SC.newest_lesson_mtime(cfg) < float(stamp + 999), (
+        "страж принял за урок ядро/указатель/приватный файл — они меняются сами"
+    )
