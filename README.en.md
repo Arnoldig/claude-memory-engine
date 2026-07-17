@@ -172,6 +172,35 @@ A table for those who will read or extend the code: which feature is implemented
 | Model lineup actuality (reactive + daily) | `llm_actuality` |
 | Config self-check | `self_check` |
 
+### Verify the lessons path is set up correctly
+
+```bash
+python3 -m claude_memory.self_check
+```
+
+It prints the picture of your setup and, if something is off, explains what to fix:
+
+```
+config self-check report:
+  engine memory_dir : /Users/you/.claude/projects/-Users-you-proj/memory
+  Claude Code memory: /Users/you/.claude/projects/-Users-you-proj/memory
+  same directory    : yes
+  lessons visible   : 87  [feedback: 70, project: 10, reference: 6, user: 1]
+config self-check: OK
+```
+
+**Why this is worth verifying.** Lesson files are not created by the engine — Claude Code's
+built-in auto-memory writes them; the engine only reads, indexes and guards them. So
+`memory_dir` must point exactly where Claude Code writes (`~/.claude/projects/<slug>/memory`).
+If the paths diverge, the engine faithfully reads an empty folder: the catalog is empty, no
+lessons surface, and the Stop gate demands a lesson that will never appear in its folder. From
+the outside this looks like "all good, just no lessons yet" — which is precisely why it is
+worth a look.
+
+`same directory: NO`, or `lessons visible: 0` while your memory is not empty, means the path
+needs fixing. Since 0.10.0 the installer finds the folder itself, but projects installed
+earlier may carry the old `~/.claude/memory` default, which nobody writes to.
+
 **Flexibility**
 
 | Feature | Module |
@@ -201,7 +230,7 @@ cd claude-memory-engine
 ./install.sh /path/to/your/project /path/to/your/memory
 ```
 
-`install.sh` puts the engine inside the project (into `.claude/memory_engine/`), installs the glue script, creates the config file and the memory folder, and registers the hooks in `settings.json` without overwriting anyone else's. Re-running is safe: no duplicates appear. The arguments are optional: then the current folder is taken as the project, and `~/.claude/memory` is used for memory.
+`install.sh` puts the engine inside the project (into `.claude/memory_engine/`), installs the glue script, creates the config file, and registers the hooks in `settings.json` without overwriting anyone else's. Re-running is safe: no duplicates appear. The arguments are optional: then the current folder is taken as the project, and the memory folder is auto-detected — the one Claude Code writes auto-memory to (`~/.claude/projects/<slug>/memory`).
 
 ### Variant B: pip + one command
 
@@ -240,7 +269,7 @@ All settings live in the project file `.claude/claude-memory.config.json`. Right
 
 ```json
 {
-  "memory_dir": "~/.claude/memory",
+  "memory_dir": "/Users/you/.claude/projects/<slug>/memory",
   "project_root": "."
 }
 ```
@@ -261,7 +290,7 @@ Below are a few common edits in a "before → after" form. The needed keys are a
 
 ```json
 {
-  "memory_dir": "~/.claude/memory",
+  "memory_dir": "/Users/you/.claude/projects/<slug>/memory",
   "project_root": ".",
   "messages": {
     "unit.chars": "символов",
@@ -283,7 +312,7 @@ Here `unit.chars` is the word for the size unit when the engine reports memory s
 
 ```json
 {
-  "memory_dir": "~/.claude/memory",
+  "memory_dir": "/Users/you/.claude/projects/<slug>/memory",
   "project_root": ".",
   "topic_order": [
     ["backend", "Backend"],
@@ -297,7 +326,7 @@ Here `unit.chars` is the word for the size unit when the engine reports memory s
 
 ```json
 {
-  "memory_dir": "~/.claude/memory",
+  "memory_dir": "/Users/you/.claude/projects/<slug>/memory",
   "project_root": ".",
   "core_budget_bytes": 20000,
   "core_size_unit": "chars"
@@ -308,7 +337,7 @@ Here `unit.chars` is the word for the size unit when the engine reports memory s
 
 ```json
 {
-  "memory_dir": "~/.claude/memory",
+  "memory_dir": "/Users/you/.claude/projects/<slug>/memory",
   "project_root": ".",
   "session_close_pattern": "Туши свет|\\bDone\\b",
   "session_close_case_sensitive": true

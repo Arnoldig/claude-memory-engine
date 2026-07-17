@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import MemoryConfig, get_config
+from .lesson_files import lesson_paths
 from .messages import msg
 
 
@@ -27,15 +28,19 @@ def decide(commit_ts: int, feedback_ts: float, now_ts: float, age_limit: int) ->
 
 
 def newest_lesson_mtime(cfg: MemoryConfig) -> float:
-    """mtime самого свежего файла-урока по ВСЕМ префиксам (feedback_/reference_/project_). 0, если нет.
+    """mtime самого свежего файла-урока (0.0, если уроков нет).
 
-    По всем (а не только первому): иначе запись урока reference_*/project_* после коммита
-    не снимала бы Stop-блок — рассинхрон с task_lesson_recorded, который перебирает все."""
-    prefixes = cfg.lesson_prefixes or ("feedback",)
-    files = []
-    for prefix in prefixes:
-        files += glob.glob(os.path.join(cfg.memory_dir, f"{prefix}_*.md"))
-    return max((os.path.getmtime(f) for f in files), default=0.0)
+    Урок — по `lesson_files.is_lesson_file`, ТОТ ЖЕ набор, что видят каталог и ретривер.
+    До 0.10.0 здесь был glob по маске `f"{prefix}_*.md"`, и это ломало стража насмерть:
+    урок, названный не по приставке (а имена файлов пишет авто-память Claude Code, не
+    движок), сюда не попадал → страж требовал зафиксировать урок, урок писали, страж
+    требовал снова. При каталоге вообще без приставок функция возвращала ровно 0.0 —
+    «уроков нет» при полной папке.
+
+    Страж не имеет права требовать того, чего не умеет замечать: набор здесь обязан
+    совпадать с каталогом. Расширение строго МЯГЧЕ — оно может только снять блок, но
+    не создать новый."""
+    return max((os.path.getmtime(f) for f in lesson_paths(cfg)), default=0.0)
 
 
 def last_commit_ts(cwd: str) -> int:
@@ -118,14 +123,16 @@ def extract_closed_task(commit_msg: str, pattern: str) -> Optional[str]:
 
 
 def task_lesson_recorded(cfg: MemoryConfig, task_id: str) -> bool:
-    """Есть ли уже запись про задачу `#task_id`: в файле-уроке (любой префикс) или в
-    архиве прецедентов. Ищем хэштег-форму `#<id>` с границей справа — точно и без ложных
-    совпадений (`#58` НЕ матчит `#580`/`#58-foo`; id бывает числом ИЛИ слагом)."""
+    """Есть ли уже запись про задачу `#task_id`: в ЛЮБОМ файле-уроке или в архиве
+    прецедентов. Ищем хэштег-форму `#<id>` с границей справа — точно и без ложных
+    совпадений (`#58` НЕ матчит `#580`/`#58-foo`; id бывает числом ИЛИ слагом).
+
+    Набор уроков — общий (`lesson_files`), как у стража завершения и каталога: до 0.10.0
+    перебирались только приставки, и урок про задачу, названный иначе, привратник
+    закрытия не находил — требовал записать уже записанное."""
     needle_re = re.compile(r"#" + re.escape(task_id) + r"(?![\w-])")
-    candidates: list = []
     mem = Path(cfg.memory_dir)
-    for prefix in cfg.lesson_prefixes:
-        candidates += glob.glob(str(mem / f"{prefix}_*.md"))
+    candidates: list = list(lesson_paths(cfg))
     candidates += glob.glob(str(mem / cfg.archive_dir_name / "*.md"))
     for path in candidates:
         try:

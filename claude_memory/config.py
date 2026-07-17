@@ -57,7 +57,18 @@ class MemoryConfig:
     core_file: str = "MEMORY.md"          # горячее ядро (грузится всегда, есть бюджет)
     catalog_file: str = "CATALOG.md"      # авто-указатель (собирается из frontmatter)
     session_lessons_file: str = "feedback_session_end_lessons.md"  # транзитный файл маркеров
-    lesson_prefixes: Tuple[str, ...] = ("feedback", "reference", "project")  # префиксы файлов-уроков
+    # УСТАРЕЛО с 0.10.0 и БОЛЬШЕ НЕ ОТВЕЧАЕТ на вопрос «что такое урок» — на него отвечает
+    # `lesson_files.is_lesson_file` (любой *.md в корне, кроме ядра/указателя/приватных), а
+    # тип урока берётся из поля `type` frontmatter (`lesson_files.lesson_type`).
+    # Почему: файлы уроков пишет НЕ движок, а авто-память Claude Code, и она именует их по
+    # своим правилам. Требовать приставку — требовать того, чем не управляешь; страж слеп на
+    # всём, что под неё не попало, и требовал записать уже записанное.
+    # Поле СОХРАНЕНО (конфиги внешних потребителей не ломаем) в узких ролях: фолбэк для
+    # `size_warn_prefixes` и `precedent_files`, ссылки в `precedent_index`.
+    # `user` добавлен в дефолт: официальный словарь типов Claude Code — user | feedback |
+    # project | reference, и его отсутствие делало урок типа `user` невидимым для стража в
+    # ЛЮБОМ проекте на дефолтах (замер: по одному такому уроку в каждом боевом корпусе).
+    lesson_prefixes: Tuple[str, ...] = ("feedback", "reference", "project", "user")
 
     # — таксономия указателя (catalog_generate) —
     topic_order: Tuple[Tuple[str, str], ...] = _DEFAULT_TOPIC_ORDER
@@ -160,13 +171,22 @@ class MemoryConfig:
     # 100%). None — выключить ранний нудж (только превышение бюджета).
     core_warn_ratio: Optional[float] = 0.8
     feedback_warn_bytes: int = 4000       # предупреждение о крупном уроке (байты)
-    # Какие префиксы уроков получают размер-warning. None → все lesson_prefixes. Проект
-    # может сузить (напр. только "feedback").
+    # Какие уроки получают размер-warning — СУЖАЮЩАЯ ручка (приставки имён). None → ВСЕ
+    # уроки (`lesson_files.is_lesson_file`). До 0.10.0 None значил «все lesson_prefixes»,
+    # и урок без приставки рос без единого предупреждения.
     size_warn_prefixes: Optional[Tuple[str, ...]] = None
     size_warn_skip_archive: bool = True   # не предупреждать о размере файлов в archive/
     size_exempt: Tuple[str, ...] = ()     # имена файлов БЕЗ размер-warning (реестры/индексы)
     size_override: dict = field(default_factory=dict)  # имя файла → свой лимит (байты)
     precedent_count_warn: int = 3         # warning при ≥N живых блоках «Прецедент» (0 — выкл)
+    # Файлы-накопители прецедентов (приставки имён) — кандидаты на авто-архивацию старых
+    # карточек. Это путь ЗАПИСИ: он вырезает карточки из файла и переносит в архив, поэтому
+    # определение здесь НАМЕРЕННО узкое (расширение на «любой урок» переселяло бы чужие
+    # файлы). None → историческое поведение: первый элемент `lesson_prefixes`.
+    # Заведено в 0.10.0: контракт «lesson_prefixes[0] — это файл прецедентов» был
+    # позиционным и нигде не описанным, и проект с другим порядком префиксов молча целился
+    # не в тот файл. Теперь порядок в `lesson_prefixes` ничего не решает — задавайте явно.
+    precedent_files: Optional[Tuple[str, ...]] = None
     precedent_archive_days: int = 30      # прецеденты старше → в архив
     marker_archive_days: int = 7          # session-маркеры старше → в архив
     archive_dir_name: str = "archive"     # подкаталог архива внутри memory_dir
@@ -196,13 +216,22 @@ class MemoryConfig:
 
     # — привратник закрытия задачи (Stop): коммит-закрытие без записанного про задачу урока —
     task_close_lesson_gate: bool = True
-    # Шаблон коммита-закрытия. По умолчанию — стандарт GitHub `Closes/Fixes #<id>`
-    # (id — число ИЛИ слаг: `#58`, `#memory-lib-cutover`). Группа 1 = номер задачи.
+    # Шаблон коммита-закрытия. По умолчанию — ВСЕ девять официальных слов-закрытий GitHub:
+    # close/closes/closed, fix/fixes/fixed, resolve/resolves/resolved (id — число ИЛИ слаг:
+    # `#58`, `#memory-lib-cutover`). Группа 1 = номер задачи.
+    # Семья `resolve` добавлена в 0.10.0: её не было, то есть треть законных форм закрытия
+    # GitHub привратник молча не узнавал. Поймано при переводе трекера на GitHub Issues —
+    # и это ровно тот класс дефекта, что уже описан в памяти проекта: страж, узнающий
+    # событие по НЕПОЛНОМУ списку форм, недосрабатывает молча, а «не узнал» неотличимо от
+    # «события не было». Список форм здесь обязан зеркалить источник (документацию GitHub),
+    # а не интуицию автора.
     # Граница слева — негативный lookbehind `(?<![\w-])`, а НЕ `\b`: `\b` срабатывает и
     # после дефиса, из-за чего `prefixed-closes #10` / `auto-closes #10` ложно читались бы
     # как закрытие #10. Lookbehind пропускает `Closes #id` в начале строки, после пробела
     # или двоеточия, но не `<слово>-closes #id`. Найдено red-team-проверкой.
-    task_close_pattern: str = r"(?i)(?<![\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
+    task_close_pattern: str = (
+        r"(?i)(?<![\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?|resolv(?:e|es|ed))\s+#([\w-]+)"
+    )
 
     # — страж устаревших уроков (stale_reconcile): чек-лист памяти на фразу закрытия —
     # Когда сообщение пользователя совпадает с session_close_pattern, на UserPromptSubmit
@@ -289,7 +318,7 @@ class MemoryConfig:
 _TUPLE_FIELDS = {
     "lesson_prefixes", "watched_dirs", "stopwords", "routine_subagent_types",
     "staleness_skip_dirs", "retrieve_extensions", "size_warn_prefixes",
-    "size_exempt", "session_start_notes", "known_model_substrs",
+    "size_exempt", "session_start_notes", "known_model_substrs", "precedent_files",
 }
 
 
@@ -331,23 +360,56 @@ def _find_config_file(explicit: Optional[str]) -> Optional[Path]:
     return None
 
 
+def _fallback_memory_dir(project_root: str) -> str:
+    """Каталог авто-памяти Claude Code для проекта — запасное значение memory_dir.
+
+    Импорт локальный — он экономит ИМПОРТ модуля на общем пути загрузки конфига, но НЕ
+    subprocess: у кого memory_dir не задан ни в конфиге, ни в env, git-вызов (~14 мс)
+    платится в каждом хуке. Популяция узкая (установщик путь всегда пишет), и размен
+    честный: было «мгновенно и мимо цели», стало «14 мс и в цель».
+
+    `except Exception` намеренно широкий: `load()` обязан не падать НИКОГДА, иначе умрут
+    все хуки разом. `KeyboardInterrupt`/`SystemExit` он не ловит (они не от Exception), так
+    что Ctrl-C не проглатывается. Маскировки нет: `resolve_auto_memory_dir` глотает свои
+    ошибки сам и всегда возвращает путь — эта ветка практически недостижима, она ремень
+    поверх подтяжек."""
+    try:
+        from .claude_code_env import resolve_auto_memory_dir
+
+        resolved, _trusted = resolve_auto_memory_dir(project_root)
+        if resolved:
+            return resolved
+    except Exception:
+        pass
+    return str(Path.home() / ".claude" / "memory")
+
+
 def load(path: Optional[str] = None) -> MemoryConfig:
-    """Загружает конфиг из JSON (или дефолты). Пути memory_dir/project_root, если не
-    заданы ни в файле, ни в env, берутся из CLAUDE_MEMORY_DIR / CLAUDE_PROJECT_ROOT,
-    иначе — нейтральные дефолты (~/.claude/memory и текущий каталог)."""
+    """Загружает конфиг из JSON (или дефолты). Пути memory_dir/project_root, если не заданы
+    ни в файле, ни в env (CLAUDE_MEMORY_DIR / CLAUDE_PROJECT_ROOT), выводятся: project_root
+    — текущий каталог, memory_dir — каталог авто-памяти Claude Code для этого проекта.
+
+    Про memory_dir. До 0.10.0 запасным значением было `~/.claude/memory` — папка, в которую
+    НЕ ПИШЕТ НИКТО: уроки создаёт авто-память Claude Code, а держит она их в
+    `~/.claude/projects/<slug>/memory`. Молчаливый откат на заведомо пустой каталог — та же
+    болезнь, что и у стража: движок делал вид, что настроен, и честно не находил ничего.
+    Путь здесь ВЫВОДИТСЯ, а не подтверждается (подтверждение и жалобы — дело `self_check`),
+    но выводится к той папке, где уроки действительно есть.
+    """
     cfg_file = _find_config_file(path)
     data: dict = {}
     if cfg_file is not None:
         data = json.loads(cfg_file.read_text(encoding="utf-8"))
     data = _coerce(data)
 
-    # пути — отдельной логикой (env как запасной источник)
-    if "memory_dir" not in data:
-        data["memory_dir"] = os.environ.get("CLAUDE_MEMORY_DIR") or str(
-            Path.home() / ".claude" / "memory"
-        )
+    # пути — отдельной логикой (env как запасной источник). project_root ПЕРВЫМ: от него
+    # выводится memory_dir.
     if "project_root" not in data:
         data["project_root"] = os.environ.get("CLAUDE_PROJECT_ROOT") or str(Path.cwd())
+    if "memory_dir" not in data:
+        data["memory_dir"] = os.environ.get("CLAUDE_MEMORY_DIR") or _fallback_memory_dir(
+            data["project_root"]
+        )
     data["memory_dir"] = str(Path(data["memory_dir"]).expanduser())
     data["project_root"] = str(Path(data["project_root"]).expanduser())
     return MemoryConfig(**data)

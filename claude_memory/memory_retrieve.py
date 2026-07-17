@@ -18,7 +18,6 @@
 """
 from __future__ import annotations
 
-import glob
 import hashlib
 import json
 import math
@@ -30,6 +29,7 @@ from typing import Dict, List, Optional, Tuple
 from . import sqlite_index
 from .applies_to import find_lessons_for_path, read_head, strip_scalar
 from .config import MemoryConfig, get_config
+from .lesson_files import lesson_paths
 from .messages import msg
 
 
@@ -150,15 +150,11 @@ def _params_fingerprint(cfg: MemoryConfig) -> str:
 
 
 def _candidate_files(cfg: MemoryConfig) -> List[str]:
-    """Пути файлов-уроков для скоринга: все *.md в memory_dir минус ядро/каталог/приватные."""
-    skip = {cfg.core_file, cfg.catalog_file}
-    out = []
-    for mf in glob.glob(os.path.join(cfg.memory_dir, "*.md")):
-        base = os.path.basename(mf)
-        if base in skip or base.startswith(cfg.private_file_prefix):
-            continue
-        out.append(mf)
-    return out
+    """Пути файлов-уроков для скоринга.
+
+    Тонкая обёртка над `lesson_files.lesson_paths` — единым источником истины (0.10.0).
+    Набор ровно тот же, что у каталога и стража."""
+    return lesson_paths(cfg)
 
 
 def _scan_docs(cfg: MemoryConfig, files: List[str]):
