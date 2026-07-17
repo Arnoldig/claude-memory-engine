@@ -90,7 +90,7 @@ def _resolve_memory_dir(args: argparse.Namespace, project_dir: Path) -> tuple:
       • подтверждена диском (папка есть и в ней уроки) → берём молча;
       • не подтверждена → берём, но предупреждаем и НЕ создаём каталог: пустышка рядом с
         настоящей папкой замаскировала бы ошибку от самодиагностики.
-    Явный `--memory-dir` сильнее всего и каталог создаёт (человек сказал — человек знает).
+    Явно заданный путь сильнее всего и каталог создаёт (человек сказал — человек знает).
     """
     if args.memory_dir:
         md = Path(args.memory_dir).expanduser()
@@ -105,7 +105,7 @@ def _resolve_memory_dir(args: argparse.Namespace, project_dir: Path) -> tuple:
         f"  Claude Code stores auto-memory in ~/.claude/projects/<slug>/memory, and the\n"
         f"  slug rule is not documented — this path is a best guess and no lessons were\n"
         f"  found there. Check ~/.claude/projects/ and, if it differs, re-run:\n"
-        f"    claude-memory init --memory-dir <correct path>\n"
+        f"    claude-memory init {project_dir} <correct path>\n"
         f"  Verify anytime with: python3 -m claude_memory.self_check"
     )
 
@@ -260,7 +260,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_uninstall.set_defaults(func=cmd_uninstall)
 
-    p_doctor = sub.add_parser("doctor", help="config self-check (message placeholders)")
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="config self-check: typos, broken patterns/dates, divergence from Claude Code's "
+             "settings (for the full setup picture run: python3 -m claude_memory.self_check)",
+    )
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_config = sub.add_parser("config", help="print the whole config or one field: config [get FIELD]")

@@ -4,12 +4,19 @@
 и молчит. Выглядит как «всё хорошо, уроков просто нет», а на деле стражи слепы и Stop
 блокирует после каждого коммита. Именно этот сценарий был ПОВЕДЕНИЕМ ПО УМОЛЧАНИЮ до
 0.10.0 (установщик ставил `~/.claude/memory`, куда не пишет никто).
+
+Домашний каталог подменяется для КАЖДОГО теста (`_isolate_home`): `_read_settings` всегда
+читает `~/.claude/settings.json` слабейшей областью, и без подмены тесты «молчим при битой
+настройке» зависели бы от того, что лежит в домашней папке запускающего. См. подробнее
+докстринг `tests/test_claude_code_env.py`.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from claude_memory import self_check as SC
 from conftest import write_lesson

@@ -31,6 +31,33 @@ RU_EN_CLOSE_PATTERN = (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path: Path, monkeypatch) -> Path:
+    """Пустой временный домашний каталог для КАЖДОГО теста сюиты.
+
+    Зачем глобально. С 0.10.0 движок читает настройки ХОЗЯИНА — Claude Code, — и слабейшая
+    их область `~/.claude/settings.json` (`claude_code_env._read_settings`). Значит любой
+    тест, дёргающий `self_check.warnings()`/`settings_issues()`, начинает зависеть от
+    домашней папки того, кто запускает сюиту: у автора там нет `autoMemoryDirectory` —
+    зелено; у человека, который его задал (законная настройка!), — красные тесты и никакого
+    объяснения. Проверено: с HOME, где лежит `{"autoMemoryDirectory": "/somewhere/else"}`,
+    падало пять тестов — включая ТРИ старых, которых правка не касалась вовсе.
+
+    Тест, зависящий от чужого ноутбука, закрепляет ноутбук, а не поведение. Поэтому изоляция
+    тут не гигиена, а условие осмысленности всей сюиты — и место ей в conftest, а не в
+    отдельных модулях: подмешивать её обязаны ВСЕ тесты, включая завтрашние.
+
+    Патчим ОБА канала: `Path.home` (его зовёт `default_auto_memory_dir`) и env `HOME`
+    (на него смотрит `Path.expanduser`, а `Path.home` его не покрывает). Тесту, которому
+    нужен свой home, достаточно поставить собственный monkeypatch — он применится позже.
+    """
+    home = tmp_path / "isolated-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    return home
+
+
 @pytest.fixture
 def cfg(tmp_path: Path) -> MemoryConfig:
     """MemoryConfig с дефолтами, memory_dir/project_root → во временный каталог."""

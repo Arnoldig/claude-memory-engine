@@ -1,7 +1,15 @@
 """Знание о среде-хозяине: где Claude Code держит авто-память и включена ли она.
 
 Всё оффлайн: git-репозитории собираются во временных каталогах, settings.json пишутся
-руками. Ни один тест не ходит в реальный `~/.claude`.
+руками, домашний каталог подменяется общей фикстурой `isolated_home` (conftest, autouse) —
+ни один тест не читает реальный `~/.claude` автора.
+
+Почему изоляция обязательна именно здесь: `_read_settings` ВСЕГДА добавляет
+`~/.claude/settings.json` слабейшей областью. Без подмены HOME тесты «при битом/относительном
+значении молчим» проверяли бы не код, а содержимое домашней папки того, кто их запускает:
+у автора там нет `autoMemoryDirectory` — зелено; у любого, кто его задал (законная
+настройка!), — красные тесты и никакого объяснения. Поймано ревизией 0.10.1 прогоном сюиты
+с подменённым HOME: падало пять тестов, из них ТРИ старых, которых правка не касалась.
 """
 from __future__ import annotations
 
@@ -72,6 +80,30 @@ def test_main_checkout_from_worktree_returns_main(tmp_path: Path) -> None:
 
 def test_main_checkout_not_a_repo_is_none(tmp_path: Path) -> None:
     assert E.main_checkout(str(tmp_path / "nope")) is None
+
+
+# ── форма пути авто-памяти ──────────────────────────────────────────────────────
+
+def test_default_auto_memory_dir_shape_is_pinned_literally(tmp_path: Path, isolated_home: Path) -> None:
+    """Форма `~/.claude/projects/<slug>/memory` закреплена ЛИТЕРАЛАМИ сегментов.
+
+    Почему не через вызов проверяемой функции: соседние тесты берут ожидаемое значение из
+    самой `default_auto_memory_dir` (им нужен путь, а не его форма) — и такая проверка
+    тавтологична. Замени в коде `projects` на `WRONG` — движок начнёт искать уроки в
+    несуществующей папке, то есть вернётся ровно тот дефект (`~/.claude/memory`, куда никто
+    не пишет), ради которого выпущена 0.10.0, — а тавтологичные тесты останутся зелёными.
+    Форма пути — центральный факт релиза, и у неё нет вышестоящего контракта: правило слага
+    не задокументировано и выведено обратной инженерией. Значит закреплять надо здесь.
+    """
+    _git_init(tmp_path)
+    got = Path(E.default_auto_memory_dir(str(tmp_path)))
+
+    assert got.name == "memory"
+    assert got.parent.parent.name == "projects"
+    assert got.parent.parent.parent.name == ".claude"
+    assert got.parent.parent.parent.parent == isolated_home
+    # слаг — от каталога ОСНОВНОГО чекаута (правило закреплено отдельными тестами выше)
+    assert got.parent.name == E.project_slug(E.main_checkout(str(tmp_path)))
 
 
 # ── подтверждение диском ────────────────────────────────────────────────────────

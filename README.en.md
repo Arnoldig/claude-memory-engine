@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 200+](https://img.shields.io/badge/tests-200%2B-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 390](https://img.shields.io/badge/tests-390-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -32,7 +32,7 @@ cd /path/to/your/project
 claude-memory init
 ```
 
-The first command installs the engine. `cd` takes you into your project folder. `claude-memory init` connects the engine to this project: it creates the config file, the lessons folder, and makes the engine fire at the right moments. That is all: the hints start working from the next Claude Code session. You do not have to configure anything; the defaults work out of the box. How to change settings is described below in "Configuration".
+The first command installs the engine. `cd` takes you into your project folder. `claude-memory init` connects the engine to this project: it creates the config file, locates the folder where Claude Code's built-in auto-memory writes lessons (`~/.claude/projects/<slug>/memory`), and makes the engine fire at the right moments. The engine does not set up a lessons folder of its own — it works with the one Claude Code maintains. That is all: the hints start working from the next Claude Code session. You do not have to configure anything; the defaults work out of the box. How to change settings is described below in "Configuration".
 
 <div align="center">
 
@@ -101,7 +101,7 @@ The lessons in the example are made up for illustration. The labels are English 
 - To re-verify lessons for staleness, write a close phrase at the end of a session (e.g. "Туши свет" or "Done"): the engine replies with a session memory checklist — which lessons surfaced during edits but were not updated, related-by-meaning lessons, and which guards are on. Write this phrase at the end of every session: it is what triggers the check (if you forget, the engine records the debt and reminds you at the next session start). This keeps the memory in sync with the code.
 - It prevents accidentally launching a helper sub-agent on the most expensive model and keeps a log of such launches.
 - It warns if the session model is unknown, and once a day asks you to re-verify the model lineup (any new/deactivated models) — the result lands in the close checklist.
-- It checks the config file at startup and catches typos before they break anything.
+- It checks the settings at startup and catches typos before they break anything. Separately, it warns if the engine is looking at a different folder than the one Claude Code writes lessons to — otherwise that looks like "all good, just no lessons yet".
 
 **Flexibility**
 - Any language: all of the engine's messages can be translated via settings, without touching the code.
@@ -130,7 +130,7 @@ The engine ships several "guards" — small automatic checks. They fire at diffe
 
 **Expensive sub-agent model.** Once per session it warns if a helper sub-agent is launched on the strongest (expensive) model or without an explicit model choice. On.
 
-**Config self-check.** At every startup it checks the config file for typos in message overrides so a broken setting does not silently break things. On.
+**Config self-check.** At every startup it catches settings errors that break things silently: typos in message overrides and in key names, broken regex patterns, non-ISO dates, and any divergence from Claude Code's own settings — the engine looking at a different folder than the one auto-memory writes to, or auto-memory being off so nobody can write lessons at all. The last one matters most: from the outside it looks like "all good, just no lessons yet". On.
 
 ## Module map
 
@@ -190,7 +190,7 @@ config self-check: OK
 ```
 
 **Why this is worth verifying.** Lesson files are not created by the engine — Claude Code's
-built-in auto-memory writes them; the engine only reads, indexes and guards them. So
+built-in auto-memory writes them; the engine reads, indexes and guards them. So
 `memory_dir` must point exactly where Claude Code writes (`~/.claude/projects/<slug>/memory`).
 If the paths diverge, the engine faithfully reads an empty folder: the catalog is empty, no
 lessons surface, and the Stop gate demands a lesson that will never appear in its folder. From
@@ -259,7 +259,11 @@ In short, by a single criterion: variant A keeps a separate copy of the engine i
 
 A clarification: each project has its own config file (`<project>/.claude/claude-memory.config.json`) regardless of the install variant. So a separate memory per project is configured the same way in both variant A and variant B. In variant B, only the engine code is shared across projects.
 
-Where to store lessons (a shared pool for all projects or a separate one per project) is set by the `memory_dir` option and works the same with either variant: the same memory path for all projects gives a shared pool of lessons, a separate path per project gives separate ones.
+Each project's lessons are stored by Claude Code's built-in auto-memory, in a per-project directory (`~/.claude/projects/<slug>/memory`). The `memory_dir` option must point there; with either installation variant the engine locates that directory itself.
+
+The engine itself cannot give you a shared pool of lessons across projects: it creates no lessons — it reads what Claude Code writes, and Claude Code keeps memory per project by default. Simply pointing `memory_dir` at a shared folder makes the engine read a directory nobody writes to: no hints will surface, and the Stop gate will demand a lesson that can never appear there.
+
+Only Claude Code itself can put every project in one folder — via `autoMemoryDirectory` in its `settings.json`. Point `memory_dir` at the same folder and the engine supports that setup natively. To check your path: `python3 -m claude_memory.self_check`.
 
 In both cases the hooks start working from the next Claude Code session.
 
@@ -282,7 +286,9 @@ You do not have to change anything: the defaults work out of the box. To customi
 $EDITOR .claude/claude-memory.config.json
 ```
 
-If you installed the engine via pip (variant B), there are two handy commands: `claude-memory config` prints the current settings, and `claude-memory doctor` checks the file for typos.
+If you installed the engine via pip (variant B), there are two handy commands: `claude-memory config` prints the current settings, and `claude-memory doctor` checks the settings for typos, broken patterns, and any divergence from Claude Code's settings.
+
+To see the setup picture itself — where the engine looks, where Claude Code writes, whether the paths match, and how many lessons are visible — run `python3 -m claude_memory.self_check`: it prints the report always, even when everything is fine.
 
 Below are a few common edits in a "before → after" form. The needed keys are added to the file next to the existing ones; the whole file is not replaced.
 
