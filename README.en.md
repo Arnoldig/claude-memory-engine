@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 390](https://img.shields.io/badge/tests-390-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 403](https://img.shields.io/badge/tests-403-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -211,10 +211,13 @@ earlier may carry the old `~/.claude/memory` default, which nobody writes to.
 
 | Feature | Module |
 |---|---|
+| What counts as a lesson, and of which type | `lesson_files` |
+| Where Claude Code keeps its auto-memory | `claude_code_env` |
 | All engine settings | `config` |
 | Running the logic from a hook | `hooks_cli` |
 | Registering hooks in settings.json | `installer` |
 | The `claude-memory` command (init/uninstall/doctor/config) | `cli` |
+| Unknown session model guard | `model_registry_guard` |
 
 ## Installation
 

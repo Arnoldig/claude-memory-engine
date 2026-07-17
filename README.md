@@ -4,7 +4,7 @@
 
 Долговременная автообновляемая память «уроков» для Claude Code: нужный урок показывается сам, когда он пригодится. Подбор подходящих уроков ведёт обычный код, а не ИИ, поэтому работает быстро, офлайн и без сторонних зависимостей.
 
-![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 390](https://img.shields.io/badge/tests-390-brightgreen)
+![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 403](https://img.shields.io/badge/tests-403-brightgreen)
 
 **Русский** · [English](README.en.md)
 
@@ -210,10 +210,13 @@ Stop-страж требует записать урок, которого в е
 
 | Возможность | Модуль |
 |---|---|
+| Что считать уроком и какого он типа | `lesson_files` |
+| Где Claude Code держит свою авто-память | `claude_code_env` |
 | Все настройки движка | `config` |
 | Запуск логики из хука | `hooks_cli` |
 | Регистрация хуков в settings.json | `installer` |
 | Команда `claude-memory` (init/uninstall/doctor/config) | `cli` |
+| Страж незнакомой модели сессии | `model_registry_guard` |
 
 ## Установка
 

@@ -50,6 +50,65 @@ def test_every_msg_key_in_code_exists() -> None:
     assert not missing, f"msg keys missing from DEFAULT_MESSAGES: {sorted(missing)}"
 
 
+def test_every_default_message_key_is_used_in_code() -> None:
+    """ОБРАТНЫЙ замок: мёртвых ключей в каталоге быть не должно.
+
+    Замок выше односторонний (код → дефолты) и ловит опечатки. Обратное направление не
+    проверял никто — и каталог тихо расходился с кодом: ключ `stale_reconcile.reminder`
+    пережил замену механизма в 0.8.0 и провисел мёртвым до 0.11.0.
+
+    Почему это не косметика. Имена ключей — ПУБЛИЧНЫЙ контракт: потребитель переводит их
+    у себя по имени. Ключ, который код больше не зовёт, превращает чужой перевод в
+    молчаливую пустышку — человек написал текст, движок его игнорирует, жалобы нет
+    (`self_check.message_placeholder_issues` ключи-сироты пропускает по дизайну).
+    Тот же класс, что 0.9.7 закрыл для ИМЁН ПОЛЕЙ конфига и не закрыл для имён сообщений.
+
+    Ключи ищем ДОСЛОВНО по всему коду, а не только в вызовах `msg(cfg, "…")`: часть
+    передаётся кортежами и переменными (`stale_reconcile.guard.*`, `retrieve.usage`), и
+    наивный поиск по вызовам объявил бы мёртвыми 11 живых ключей.
+    """
+    root = Path(__file__).resolve().parents[1] / "claude_memory"
+    code = "".join(
+        Path(f).read_text(encoding="utf-8")
+        for f in glob.glob(str(root / "*.py")) if not f.endswith("messages.py")
+    )
+    dead = [k for k in DEFAULT_MESSAGES if f'"{k}"' not in code and f"'{k}'" not in code]
+    assert dead == [], (
+        f"мёртвые ключи в DEFAULT_MESSAGES (код их не зовёт): {sorted(dead)}\n"
+        f"Удалите их — иначе перевод потребителя молча не применится."
+    )
+
+
+def test_recogniser_defaults_are_language_neutral() -> None:
+    """Дефолты полей-РАСПОЗНАВАТЕЛЕЙ не содержат не-ASCII.
+
+    Правило проекта: generic-дефолт библиотеки языко-нейтрален (английский), специфика
+    языка проекта живёт в проектном конфиге. Нарушение стоило дорого: до 0.11.0
+    `precedent_keyword` по умолчанию был `"Прецедент"`, а `memory_archive._precedent_re`
+    строится из `re.escape(...)` — значит у КАЖДОГО, кто пишет карточки по-английски и не
+    лез в конфиг, авто-архивация не срабатывала НИ РАЗУ и `precedent_count_warn` не считал
+    НИЧЕГО. Молча, при включённом механизме: «дефолт, который никогда не работает».
+
+    Проверяем только поля, которые ИЩУТ текст в данных пользователя (там язык дефолта решает
+    всё). Поля, которые движок ПОКАЗЫВАЕТ, сюда не входят — их язык не влияет на поиск, а
+    `messages` переводятся штатно.
+    """
+    from claude_memory.config import MemoryConfig
+
+    recognisers = ("precedent_keyword", "precedent_pointer",
+                   "session_close_pattern", "task_close_pattern")
+    offenders = []
+    for f in recognisers:
+        v = str(MemoryConfig.__dataclass_fields__[f].default or "")
+        if any(ord(c) > 127 for c in v):
+            offenders.append((f, v))
+    assert offenders == [], (
+        f"дефолт-распознаватель не языко-нейтрален: {offenders}\n"
+        f"Язык проекта задаётся в его конфиге (см. examples/claude-memory.config.ru.json), "
+        f"а не в дефолте библиотеки — иначе он молча не сработает у всех остальных."
+    )
+
+
 # ── размер ядра: символы vs байты (кириллица) ─────────────────────────────────
 
 def _core(cfg, text: str) -> None:
@@ -116,17 +175,43 @@ def test_size_exempt_and_override(cfg) -> None:
 
 
 def test_precedent_count_warn(cfg) -> None:
+    """Счётчик живых карточек — на ДЕФОЛТНОМ (английском) слове-опознавателе.
+
+    До 0.11.0 тест писал карточки словом «Прецедент» и проходил на русском дефолте — то
+    есть сам жил на той поломке, которую 0.11.0 чинит: у англоязычного потребителя на
+    дефолтах этот механизм не работал НИКОГДА, а тест этого не показывал. Проверяем то, что
+    получит человек из коробки; русские формы — отдельным тестом ниже.
+    """
     # Даты — относительно сегодня: захардкоженные однажды перешагивают
     # precedent_archive_days, авто-архив съедает блоки ДО подсчёта и тест протухает
     # (дата-бомба: упал 2026-07-02 на датах 2026-06-01..03 при пороге 30 дней).
     cfg2 = replace(cfg, feedback_warn_bytes=10 ** 9, precedent_count_warn=3)
     days = [datetime.date.today() - datetime.timedelta(days=i) for i in (1, 2, 3)]
-    blocks = "".join(f"**Прецедент {d:%Y-%m-%d}:** разбор\n\n" for d in days)
+    blocks = "".join(f"**Precedent {d:%Y-%m-%d}:** разбор\n\n" for d in days)
     (Path(cfg.memory_dir) / "feedback_p.md").write_text(blocks, encoding="utf-8")
     assert "3" in _bloat_file(cfg2, "feedback_p.md")          # ≥3 живых блока
-    two = "".join(f"**Прецедент {d:%Y-%m-%d}:** разбор\n\n" for d in days[:2])
+    two = "".join(f"**Precedent {d:%Y-%m-%d}:** разбор\n\n" for d in days[:2])
     (Path(cfg.memory_dir) / "feedback_p.md").write_text(two, encoding="utf-8")
-    assert "Precedent" not in _bloat_file(cfg2, "feedback_p.md")  # 2 блока — без счётчика
+    # Сверяем с РЕАЛЬНОЙ подстрокой сообщения, а не с выдуманной. Первая правка этого
+    # теста подставила сюда `"living precedent"` — строки, которой нет ни в одном
+    # сообщении движка: assert стал невыполнимым и не упал бы никогда, в том числе если
+    # счётчик начнёт срабатывать на двух блоках. Тест-обманка на месте живой проверки.
+    assert "'Precedent YYYY-MM-DD' blocks" not in _bloat_file(cfg2, "feedback_p.md")
+
+
+def test_precedent_keyword_localised_by_project(cfg) -> None:
+    """Проект со своим языком задаёт слово-опознаватель в конфиге — и оно работает.
+
+    Это вторая половина контракта 0.11.0: дефолт нейтрален, локализация — дело проекта
+    (`examples/claude-memory.config.ru.json`). Без этого теста смена дефолта выглядела бы
+    как «русские карточки больше не поддерживаются», а они поддерживаются — явной строкой.
+    """
+    cfg2 = replace(cfg, feedback_warn_bytes=10 ** 9, precedent_count_warn=3,
+                   precedent_keyword="Прецедент", precedent_pointer="перенесён в")
+    days = [datetime.date.today() - datetime.timedelta(days=i) for i in (1, 2, 3)]
+    blocks = "".join(f"**Прецедент {d:%Y-%m-%d}:** разбор\n\n" for d in days)
+    (Path(cfg.memory_dir) / "feedback_p.md").write_text(blocks, encoding="utf-8")
+    assert "3" in _bloat_file(cfg2, "feedback_p.md")
 
 
 def test_archive_files_skipped(cfg) -> None:
