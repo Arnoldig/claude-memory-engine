@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .claude_code_env import resolve_auto_memory_dir
 from .installer import install_into_settings, uninstall_from_settings
 
 # Шаблон обёртки для pip-режима. Интерпретатор зафиксирован на установку, из которой
@@ -76,11 +77,42 @@ def _import_ok(python_exe: str) -> bool:
         return False
 
 
+def _resolve_memory_dir(args: argparse.Namespace, project_dir: Path) -> tuple:
+    """(memory_dir, предупреждение) для init.
+
+    До 0.10.0 дефолтом было `~/.claude/memory` — каталог, в который НЕ пишет никто: уроки
+    создаёт авто-память Claude Code, а она держит их в `~/.claude/projects/<slug>/memory`.
+    То есть установка «по умолчанию» ГАРАНТИРОВАННО разводила каталоги: движок читал
+    пустую папку, страж требовал урок, которого там никогда не появится, и снять блок было
+    нечем. Разъезд был не ошибкой пользователя, а поведением из коробки.
+
+    Теперь путь ищется у хозяина. Догадка о слаге подаётся честно:
+      • подтверждена диском (папка есть и в ней уроки) → берём молча;
+      • не подтверждена → берём, но предупреждаем и НЕ создаём каталог: пустышка рядом с
+        настоящей папкой замаскировала бы ошибку от самодиагностики.
+    Явный `--memory-dir` сильнее всего и каталог создаёт (человек сказал — человек знает).
+    """
+    if args.memory_dir:
+        md = Path(args.memory_dir).expanduser()
+        md.mkdir(parents=True, exist_ok=True)
+        return md.resolve(), ""
+    resolved, trusted = resolve_auto_memory_dir(str(project_dir))
+    md = Path(resolved).expanduser()
+    if trusted:
+        return md.resolve(), ""
+    return md, (
+        f"\n⚠ memory dir was DERIVED, not confirmed: {md}\n"
+        f"  Claude Code stores auto-memory in ~/.claude/projects/<slug>/memory, and the\n"
+        f"  slug rule is not documented — this path is a best guess and no lessons were\n"
+        f"  found there. Check ~/.claude/projects/ and, if it differs, re-run:\n"
+        f"    claude-memory init --memory-dir <correct path>\n"
+        f"  Verify anytime with: python3 -m claude_memory.self_check"
+    )
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     project_dir = Path(args.project_dir or Path.cwd()).expanduser().resolve()
-    memory_dir = Path(args.memory_dir or (Path.home() / ".claude" / "memory")).expanduser()
-    memory_dir.mkdir(parents=True, exist_ok=True)
-    memory_dir = memory_dir.resolve()
+    memory_dir, memory_warning = _resolve_memory_dir(args, project_dir)
 
     claude_dir = project_dir / ".claude"
     hooks_dir = claude_dir / "hooks"
@@ -107,6 +139,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     print(f"  config:        {config_path}" + ("" if created_cfg else "  (existed, kept)"))
     print(f"  settings.json: +{added} hook registration(s)")
     print(f"  memory:        {memory_dir}")
+    if memory_warning:
+        print(memory_warning)
 
     # 4. проверка импорта под зафиксированным интерпретатором — иначе обёртка молча мертва
     if not _import_ok(python_exe):
@@ -212,7 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_init.add_argument(
         "memory_dir", nargs="?", default=None,
-        help="lessons memory directory (default: ~/.claude/memory)",
+        help="lessons memory directory (default: auto-detect Claude Code's auto-memory dir, "
+             "~/.claude/projects/<slug>/memory)",
     )
     p_init.set_defaults(func=cmd_init)
 

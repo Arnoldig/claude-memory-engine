@@ -1,14 +1,18 @@
 {
-  "memory_dir": "~/.claude/memory",
+  "memory_dir": "/Users/you/.claude/projects/<slug>/memory",
   "project_root": ".",
   "core_file": "MEMORY.md",
   "catalog_file": "CATALOG.md",
   "session_lessons_file": "feedback_session_end_lessons.md",
+  "_lesson_prefixes_note": "DEPRECATED since 0.10.0 and no longer decides what counts as a lesson: a lesson is any *.md in the root of memory_dir except core_file, catalog_file and private _* files, and the lesson TYPE is read from the frontmatter `type` field. Lesson files are written by Claude Code's auto-memory, not by the engine, so requiring a filename prefix meant requiring something the engine does not control. Kept for backward compatibility in narrow roles: fallback for size_warn_prefixes and precedent_files, link matching in precedent_index. Mirrors Claude Code's official type vocabulary.",
   "lesson_prefixes": [
     "feedback",
     "reference",
-    "project"
+    "project",
+    "user"
   ],
+  "_precedent_files_note": "Explicit precedent-accumulator files for auto-archiving (a WRITE path: it cuts cards out of the file). null → historical behaviour: the FIRST element of lesson_prefixes. Set it explicitly if your prefix order differs — the positional contract was never documented and silently targeted the wrong file.",
+  "precedent_files": null,
   "topic_order": [
     [
       "workflow",

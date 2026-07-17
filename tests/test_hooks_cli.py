@@ -1,7 +1,10 @@
 """Тесты диспетчера хук-логики (раньше не покрывался — здесь и поймался hash()-баг)."""
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from claude_memory import hooks_cli as H
 from claude_memory import stale_reconcile as SR
@@ -164,6 +167,56 @@ def test_bloat_check_warns_on_empty_name(cfg) -> None:
     event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
     out = H.ev_bloat_check(event, cfg)
     assert "feedback_empty_name.md" in out
+
+
+def test_bloat_check_warns_on_empty_name_in_kebab_lesson(cfg) -> None:
+    """0.10.0: нудж смотрит на «урок ли» (lesson_files), а не на приставку. Урок без
+    приставки раньше рос и портился без единого предупреждения."""
+    p = write_lesson(cfg.memory_dir, "kebab-case-lesson.md", name='""', topic="testing",
+                     body="тело урока")
+    event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
+    assert "kebab-case-lesson.md" in H.ev_bloat_check(event, cfg)
+
+
+@pytest.mark.parametrize("base", ["MEMORY.md", "CATALOG.md", "_private.md"])
+def test_bloat_check_silent_on_non_lessons(cfg, base: str) -> None:
+    """Расширение не должно распространиться на ядро/указатель/приватные: указатель
+    пересобирает сам движок, и нудж «пустой name» на нём был бы жалобой на себя."""
+    p = write_lesson(cfg.memory_dir, base, name='""', body="тело")
+    event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
+    out = H.ev_bloat_check(event, cfg)
+    assert "empty" not in out.lower()
+
+
+# ── авто-архив прецедентов: путь ЗАПИСИ, определение НАМЕРЕННО остаётся узким ────
+
+def test_precedent_file_default_is_first_prefix_bit_for_bit(cfg) -> None:
+    """Регрессия: без `precedent_files` целимся туда же, куда до 0.10.0 — в первый префикс
+    уроков. Обновление не должно переселять карточки у существующих потребителей."""
+    assert H._is_precedent_file("feedback_x.md", cfg) is True
+    assert H._is_precedent_file("reference_x.md", cfg) is False
+    assert H._is_precedent_file("kebab-lesson.md", cfg) is False
+
+
+def test_precedent_files_explicit_wins_over_prefix_order(cfg) -> None:
+    """Позиционный контракт «lesson_prefixes[0] — файл прецедентов» нигде не описан: проект
+    с иным порядком префиксов молча целился не в тот файл (живой случай — первый префикс
+    `urok`). Явное поле снимает зависимость от порядка."""
+    cfg2 = replace(cfg, lesson_prefixes=("urok", "feedback"), precedent_files=("feedback",))
+    assert H._is_precedent_file("feedback_x.md", cfg2) is True
+    assert H._is_precedent_file("urok_x.md", cfg2) is False
+
+    # без явного поля тот же конфиг целился бы в `urok_*` — ровно та ловушка
+    cfg3 = replace(cfg, lesson_prefixes=("urok", "feedback"))
+    assert H._is_precedent_file("urok_x.md", cfg3) is True
+    assert H._is_precedent_file("feedback_x.md", cfg3) is False
+
+
+def test_precedent_files_never_widens_to_any_lesson(cfg) -> None:
+    """Расширить этот путь на «любой урок» нельзя: он ВЫРЕЗАЕТ карточки из файла и
+    переносит в архив — kebab-урок со словом-маркером молча переехал бы."""
+    cfg2 = replace(cfg, precedent_files=("feedback",))
+    assert H._is_precedent_file("pravovaya-ramka-rkn.md", cfg2) is False
 
 
 def test_bloat_check_warns_on_bloated_description(cfg) -> None:

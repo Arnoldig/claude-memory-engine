@@ -21,6 +21,7 @@ import subprocess
 from typing import List, Optional, Tuple
 
 from .config import MemoryConfig, get_config
+from .lesson_files import lesson_paths
 
 _APPLIES_RE = re.compile(r"^[ \t]*applies_to:[ \t]*(.*)$", re.MULTILINE)
 _DESC_RE = re.compile(r"^description:[ \t]*(.*)$", re.MULTILINE)  # [ \t]* не \s*: пустое поле не хватает следующую строку
@@ -233,7 +234,11 @@ def find_lessons_for_path(
     candidates = _candidates(target, cfg.project_root)
     tooling = _in_claude_tooling(target)
     out: List[Tuple[str, str]] = []
-    for mf in sorted(glob.glob(os.path.join(cfg.memory_dir, "*.md"))):
+    # Набор уроков — общий (`lesson_files`), а не голый glob `*.md`: до 0.10.0 здесь был
+    # ТРЕТИЙ вариант определения урока — без исключения ядра/указателя/приватных, с одним
+    # лишь фильтром «есть frontmatter». Сегодня не стреляло (у ядра frontmatter'а нет), но
+    # это ровно та мина, что и подорвалась у стража: определение, живущее своей жизнью.
+    for mf in lesson_paths(cfg):
         fm = _frontmatter(mf)
         if not fm:
             continue

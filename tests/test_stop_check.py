@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import pytest
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -28,6 +29,58 @@ def test_newest_lesson_mtime(cfg) -> None:
     f = write_lesson(cfg.memory_dir, "feedback_a.md", description="d")
     os.utime(f, (1000, 1000))
     assert SC.newest_lesson_mtime(cfg) == 1000.0
+
+
+# ── АНТИ-ВОСКРЕШЕНИЕ бага «страж требует урок, который сам же не видит» ─────────
+# Имена файлов уроков пишет авто-память Claude Code, а не движок. До 0.10.0 страж искал
+# по маске `f"{prefix}_*.md"`, и уроки, названные иначе, для него не существовали:
+# требование стража было НЕЧЕМ удовлетворить.
+
+def test_newest_lesson_mtime_sees_lessons_without_prefix(cfg) -> None:
+    """Каталог ТОЛЬКО из уроков без приставки. Раньше здесь был ровно 0.0 при непустой
+    папке — «уроков нет» → блок на каждый свежий коммит, снять нечем."""
+    f = write_lesson(cfg.memory_dir, "kebab-case-lesson.md", name="k", description="d",
+                     type="project")
+    os.utime(f, (2000, 2000))
+    assert SC.newest_lesson_mtime(cfg) == 2000.0
+
+
+def test_newest_lesson_mtime_sees_user_type(cfg) -> None:
+    """Тип `user` есть в официальном словаре Claude Code, но отсутствовал в дефолтных
+    lesson_prefixes → такой урок был невидим стражу в ЛЮБОМ проекте на дефолтах."""
+    f = write_lesson(cfg.memory_dir, "user_profile.md", name="u", description="d", type="user")
+    os.utime(f, (3000, 3000))
+    assert SC.newest_lesson_mtime(cfg) == 3000.0
+
+
+def test_newest_lesson_mtime_ignores_core_catalog_private(cfg) -> None:
+    """Ядро/указатель/приватные — не уроки: они меняются сами (указатель пересобирается
+    движком) и молча снимали бы блок за человека."""
+    for base in (cfg.core_file, cfg.catalog_file, "_private.md"):
+        f = write_lesson(cfg.memory_dir, base, name="x", description="d")
+        os.utime(f, (9000, 9000))
+    assert SC.newest_lesson_mtime(cfg) == 0.0
+
+
+def test_kebab_lesson_after_commit_releases_the_block(cfg) -> None:
+    """Сквозной сценарий бага: свежий коммит → блок; записали урок в стиле проекта →
+    блок обязан сняться. Раньше не снимался никогда."""
+    commit_ts, now = 1_000_000, 1_000_060
+    assert SC.decide(commit_ts, SC.newest_lesson_mtime(cfg), now, AGE) is True
+
+    f = write_lesson(cfg.memory_dir, "pravovaya-ramka-rkn.md", name="p", description="d",
+                     type="project")
+    os.utime(f, (commit_ts + 10, commit_ts + 10))
+    assert SC.decide(commit_ts, SC.newest_lesson_mtime(cfg), now, AGE) is False
+
+
+def test_task_lesson_recorded_in_kebab_lesson(cfg) -> None:
+    """Привратник закрытия задачи страдал тем же: урок про задачу, названный не по
+    приставке, он не находил — и требовал записать уже записанное."""
+    write_lesson(cfg.memory_dir, "infrastruktura-vps.md", name="i", description="d",
+                 type="project", body="Разобрано в задаче #42 — вывод такой.")
+    assert SC.task_lesson_recorded(cfg, "42") is True
+    assert SC.task_lesson_recorded(cfg, "43") is False
 
 
 def test_disabled_returns_none(cfg) -> None:
@@ -65,6 +118,34 @@ def test_extract_closed_task_numeric_and_slug(cfg) -> None:
     assert SC.extract_closed_task("fix: Closes #58", p) == "58"
     assert SC.extract_closed_task("docs: Fixes #memory-lib-cutover", p) == "memory-lib-cutover"
     assert SC.extract_closed_task("just a normal commit", p) is None
+
+
+@pytest.mark.parametrize("word", [
+    "close", "closes", "closed", "Close", "CLOSES",
+    "fix", "fixes", "fixed", "Fixes",
+    "resolve", "resolves", "resolved", "Resolves",
+])
+def test_extract_closed_task_all_github_keywords(cfg, word: str) -> None:
+    """Дефолт обязан зеркалить ВСЕ девять слов-закрытий GitHub, а не подмножество.
+
+    Семья `resolve` отсутствовала до 0.10.0: треть законных форм привратник молча не
+    узнавал, и «не узнал» было неотличимо от «задачу не закрывали». Список форм здесь
+    сверяется с ИСТОЧНИКОМ (докой GitHub), а не с интуицией — тот же класс дефекта уже
+    ловили на русской фразе закрытия."""
+    assert SC.extract_closed_task(f"feat: {word} #42", cfg.task_close_pattern) == "42"
+
+
+def test_extract_closed_task_body_based_closure(cfg) -> None:
+    """GitHub распознаёт закрытие и в ТЕЛЕ коммита — движок читает `%B`, не `%s`."""
+    assert SC.extract_closed_task("fix(config): описка\n\nResolves #7", cfg.task_close_pattern) == "7"
+
+
+def test_extract_closed_task_bare_mention_is_not_closure(cfg) -> None:
+    """Голое упоминание задачи — не закрытие: рядовой стиль `тема (#5)` не должен
+    блокировать Stop зря."""
+    p = cfg.task_close_pattern
+    assert SC.extract_closed_task("рефакторинг (#5)", p) is None
+    assert SC.extract_closed_task("правки по #5 и #6", p) is None
 
 
 def test_extract_closed_task_hyphen_prefix_not_closure(cfg) -> None:

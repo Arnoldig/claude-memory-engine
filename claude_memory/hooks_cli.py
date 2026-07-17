@@ -41,6 +41,7 @@ from . import (
 )
 from .applies_to import _frontmatter, find_lessons_for_path, format_lines
 from .config import MemoryConfig, get_config
+from .lesson_files import is_lesson_file
 from .messages import msg
 
 
@@ -266,6 +267,17 @@ def _unit_word(cfg: MemoryConfig, unit: str) -> str:
     return msg(cfg, "unit.chars" if unit == "chars" else "unit.bytes")
 
 
+def _is_precedent_file(name: str, cfg: MemoryConfig) -> bool:
+    """Файл-накопитель прецедентов (кандидат на авто-архивацию старых карточек).
+
+    `precedent_files` — явные имена (или их приставки). None → историческое поведение:
+    первый элемент `lesson_prefixes`. Фолбэк сохранён бит-в-бит, чтобы обновление 0.10.0
+    не переселило карточки у существующих потребителей."""
+    if cfg.precedent_files is not None:
+        return any(name.startswith(pref) for pref in cfg.precedent_files)
+    return bool(cfg.lesson_prefixes) and name.startswith(cfg.lesson_prefixes[0])
+
+
 def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date] = None) -> str:
     """PostToolUse Write|Edit на файле памяти: авто-архив старого + предупреждение о размере.
 
@@ -302,8 +314,14 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             )
         except OSError:
             pass
-    # авто-архив прецедентов в feedback-файле (первый префикс уроков)
-    if cfg.lesson_prefixes and name.startswith(cfg.lesson_prefixes[0]):
+    # — авто-архив прецедентов —
+    # ЕДИНСТВЕННОЕ место, где определение НАМЕРЕННО остаётся узким: это путь ЗАПИСИ (он
+    # вырезает карточки из файла и переносит в архив), а не нудж. Расширь его на «любой
+    # урок» — и kebab-урок со словом-маркером прецедента молча переехал бы в архив.
+    # `precedent_files` задаёт файлы явно; None → историческое поведение (первый префикс
+    # уроков) бит-в-бит. Позиционный контракт «lesson_prefixes[0] == файл прецедентов»
+    # нигде не документировался — проект с иным порядком префиксов целился не в тот файл.
+    if _is_precedent_file(name, cfg):
         try:
             memory_archive.archive_old_precedents(
                 p, today=today, threshold_days=cfg.precedent_archive_days, cfg=cfg
@@ -312,11 +330,10 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             pass
     # — урок с пустым `name`: заголовок не заполнен/обнулён (name весит ×2 в retrieve) —
     # ловим В МОМЕНТ записи, а не только в SessionStart-пульсе следующей сессии.
-    if (
-        cfg.lesson_prefixes
-        and any(name.startswith(pref) for pref in cfg.lesson_prefixes)
-        and name not in cfg.size_exempt
-    ):
+    # Признак урока — общий (`lesson_files`), а не приставка: до 0.10.0 урок без приставки
+    # рос без единого предупреждения, потому что нудж его не замечал (та же слепота, что
+    # у стража).
+    if is_lesson_file(name, cfg) and name not in cfg.size_exempt:
         try:
             raw = p.read_text(encoding="utf-8")
         except OSError:
@@ -350,9 +367,15 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
         elif cfg.core_warn_ratio and size >= cfg.core_warn_ratio * budget:
             warnings.append(msg(cfg, "bloat.core_warn", core_file=name, size=size, unit=unit, pct=pct, budget=budget))
         return "\n".join(warnings)
-    # — обычный урок: байты, только для size_warn_prefixes, не exempt —
-    prefixes = cfg.size_warn_prefixes if cfg.size_warn_prefixes is not None else cfg.lesson_prefixes
-    if any(name.startswith(pref) for pref in prefixes) and name not in cfg.size_exempt:
+    # — обычный урок: байты, не exempt —
+    # `size_warn_prefixes` остаётся СУЖАЮЩЕЙ ручкой (проект может ограничить warning'и
+    # частью корпуса). Но её ОТСУТСТВИЕ (None) теперь значит «все уроки», а не «уроки с
+    # приставкой»: иначе kebab-урок рос бы без предупреждений.
+    if (
+        (any(name.startswith(pref) for pref in cfg.size_warn_prefixes)
+         if cfg.size_warn_prefixes is not None else is_lesson_file(name, cfg))
+        and name not in cfg.size_exempt
+    ):
         size = p.stat().st_size
         limit = cfg.size_override.get(name, cfg.feedback_warn_bytes)
         if size > limit:

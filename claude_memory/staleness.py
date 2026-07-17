@@ -30,6 +30,7 @@ from .applies_to import (
     strip_scalar,
     unparsed_applies_to,
 )
+from .lesson_files import lesson_paths
 from .config import MemoryConfig, get_config
 from .messages import msg
 
@@ -148,7 +149,9 @@ def scan(
 
     stale: List[Tuple[str, str, str]] = []
     broken: List[Tuple[str, List[str]]] = []
-    for mf in sorted(glob.glob(os.path.join(cfg.memory_dir, "*.md"))):
+    # Общий набор уроков (`lesson_files`), а не голый glob `*.md`: до 0.10.0 здесь жил
+    # третий вариант определения урока — без исключения ядра/указателя/приватных.
+    for mf in lesson_paths(cfg):
         fm = _frontmatter(mf)
         if not fm:
             continue
@@ -205,7 +208,7 @@ def scan_unparsed(cfg: Optional[MemoryConfig] = None) -> List[Tuple[str, str, st
     """
     cfg = cfg or get_config()
     out: List[Tuple[str, str, str]] = []
-    for mf in sorted(glob.glob(os.path.join(cfg.memory_dir, "*.md"))):
+    for mf in lesson_paths(cfg):   # общий набор уроков, а не голый glob (см. 0.10.0)
         fm = _frontmatter(mf)
         if not fm:
             continue

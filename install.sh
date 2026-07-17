@@ -13,7 +13,10 @@
 # Usage:
 #   ./install.sh [PROJECT_DIR] [MEMORY_DIR]
 #     PROJECT_DIR   target project root   (default: current directory)
-#     MEMORY_DIR    lessons memory folder (default: ~/.claude/memory)
+#     MEMORY_DIR    lessons memory folder (default: auto-detect Claude Code's auto-memory
+#                   directory, ~/.claude/projects/<slug>/memory — that is where lessons are
+#                   actually written; verify anytime with
+#                   `python3 -m claude_memory.self_check`)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,10 +27,38 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 PROJECT_DIR="$(cd "${1:-$PWD}" && pwd)"
-MEMORY_DIR_RAW="${2:-$HOME/.claude/memory}"
-# normalize (create, then abspath)
-mkdir -p "$MEMORY_DIR_RAW"
-MEMORY_DIR="$(cd "$MEMORY_DIR_RAW" && pwd)"
+
+# Каталог уроков. Дефолтом было `~/.claude/memory` — папка, в которую НЕ ПИШЕТ НИКТО:
+# уроки создаёт авто-память Claude Code, а она держит их в `~/.claude/projects/<slug>/memory`.
+# То есть установка по умолчанию гарантированно разводила каталоги, движок читал пустоту и
+# Stop-страж блокировал навсегда. Ищем путь у хозяина тем же кодом, что и pip-CLI.
+MEMORY_WARNING=""
+if [[ -n "${2:-}" ]]; then
+  MEMORY_DIR_RAW="$2"
+  mkdir -p "$MEMORY_DIR_RAW"
+  MEMORY_DIR="$(cd "$MEMORY_DIR_RAW" && pwd)"
+else
+  DETECTED="$(PYTHONPATH="$SCRIPT_DIR" python3 - "$PROJECT_DIR" <<'PY' || true
+import sys
+from claude_memory.claude_code_env import resolve_auto_memory_dir
+path, trusted = resolve_auto_memory_dir(sys.argv[1])
+print(f"{'ok' if trusted else 'guess'}\t{path or ''}")
+PY
+)"
+  MEMORY_DIR="${DETECTED#*$'\t'}"
+  if [[ -z "$MEMORY_DIR" ]]; then
+    echo "ERROR: could not determine the memory directory. Pass it explicitly:" >&2
+    echo "  ./install.sh $PROJECT_DIR <memory dir>" >&2
+    exit 1
+  fi
+  if [[ "${DETECTED%%$'\t'*}" == "ok" ]]; then
+    MEMORY_DIR="$(cd "$MEMORY_DIR" && pwd)"
+  else
+    # Не создаём каталог по догадке: пустышка рядом с настоящей папкой замаскировала бы
+    # жалобу самодиагностики о неверном пути.
+    MEMORY_WARNING=$'\n⚠ memory dir was DERIVED, not confirmed: '"$MEMORY_DIR"$'\n  Claude Code stores auto-memory in ~/.claude/projects/<slug>/memory, and the slug rule\n  is not documented — this path is a best guess and no lessons were found there.\n  Check ~/.claude/projects/ and, if it differs, re-run with the correct path.\n  Verify anytime with: python3 -m claude_memory.self_check'
+  fi
+fi
 
 CLAUDE_DIR="$PROJECT_DIR/.claude"
 ENGINE_DEST="$CLAUDE_DIR/memory_engine"
@@ -38,6 +69,7 @@ SETTINGS="$CLAUDE_DIR/settings.json"
 echo "claude-memory-engine → install"
 echo "  project:  $PROJECT_DIR"
 echo "  memory:   $MEMORY_DIR"
+[[ -n "$MEMORY_WARNING" ]] && echo "$MEMORY_WARNING"
 echo
 
 # 1. движок (пакет) — переустанавливаем чисто (rsync-стиль: удаляем старую копию пакета)

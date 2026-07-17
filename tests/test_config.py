@@ -87,7 +87,11 @@ def test_normalizes_unambiguous_typos_in_list_fields(tmp_path: Path) -> None:
 def test_normalization_leaves_correct_values_untouched(tmp_path: Path) -> None:
     """Чиним только описку. Правильные значения (в т.ч. дефолты) обязаны остаться 1:1."""
     d = C.MemoryConfig(memory_dir=str(tmp_path), project_root=str(tmp_path))
-    assert d.retrieve_extensions[0] == "py" and d.lesson_prefixes == ("feedback", "reference", "project")
+    # Дефолт lesson_prefixes зеркалит ОФИЦИАЛЬНЫЙ словарь типов авто-памяти Claude Code
+    # (user | feedback | project | reference). `user` добавлен в 0.10.0: без него урок
+    # типа `user` был невидим стражу в любом проекте на дефолтах.
+    assert d.retrieve_extensions[0] == "py"
+    assert d.lesson_prefixes == ("feedback", "reference", "project", "user")
     assert ".git" in d.staleness_skip_dirs and "app" in d.watched_dirs
     # вложенный каталог не должен пострадать
     assert C.MemoryConfig(memory_dir=str(tmp_path), project_root=str(tmp_path),
