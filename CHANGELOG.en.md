@@ -4,6 +4,20 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Development (not shipped in the package)
+- **A check for closure basis on issues closed AUTOMATICALLY** — `.claude/hooks/issue_close_basis_audit.sh` (Stop). Found on our own issue #6: it was closed by merging a PR (`Resolves #6` appeared both in the squash commit body and in the PR description), the `gh issue close` command never ran, and `issue_close_basis_guard.sh` was never invoked — it guards the command only. The basis had to be added by hand five minutes later.
+
+  **Why the RESULT is checked, not the channel.** An issue can be closed through six routes (keyword in a commit, keyword in a PR description, web UI, mobile app, REST/GraphQL, a bot), and two points cannot be guarded even in principle: `gh pr create` with no flags (the text is typed in an editor and does not exist yet) and `gh pr merge --squash` with no `--subject/--body` (the server composes the message) — verified by replacing `gh` with an argv recorder. Guarding channel after channel is a race that cannot be won; that is exactly the lesson of issue #6, where the guard knew a single source of signal.
+
+  **The signal is `ClosedEvent.closer` from GraphQL, and nothing else.** The "comment near the closing time" window was tested and rejected against live data: on #6 the basis lagged by 294 s (a 300 s window would have passed with six seconds to spare, a 60–120 s window would have raised a false alarm), while 69 minutes BEFORE the closure sits a substantial 3741-character comment that is not the basis — a backward window would have counted it and stayed silent. REST offers no signal at all: `commit_id` on the `closed` event is null for both manual and automatic closures.
+
+  17 fixture-based tests (`gh` is replaced by a stub, no network needed). Validated by mutation: a dead hook fails 16 of 17, an always-silent one fails 9 of 17.
+- **Banning closing keywords in commits was deliberately REJECTED here**, even though that very rule is in force in both consumer projects (and is followed perfectly there: 0 violations across 436 commits in a month). Reason: this library is *about* recognising closing phrases, so the phrase is working DATA here — in tests, examples, changelog, docstrings. Measured against history: both matches of `clos|fix|resolv + #` in commit messages turned out to be false — commits like `fix(stop_check): recognise closure … not just English Closes #N`. A phrase-based guard would misfire systematically here, and a falsely blocking guard gets removed wholesale, usefulness included.
+- The rule "the basis is written into the issue BEFORE the closing pull request is merged" — in `CONTRIBUTING.md`. A detector with no prescribed correct behaviour turns every hit into firefighting instead of a check on discipline.
+- Both guards state their boundaries out loud in their headers, including what is not covered: closing via the web button with no comment is indistinguishable from a disciplined `gh issue close --comment` (both yield `closer=null`) and is caught by nothing.
+
 ## [0.13.0] — 2026-07-18
 
 ### Fixed
