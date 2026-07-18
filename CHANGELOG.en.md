@@ -4,6 +4,23 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] — 2026-07-18
+
+### Fixed
+- **Self-check no longer stays silent about diverged directories just because the engine "sees something"** ([#5](https://github.com/Arnoldig/claude-memory-engine/issues/5)). When `memory_dir` does not match the directory Claude Code writes its auto-memory to and `autoMemoryDirectory` is not set explicitly, `settings_issues()` complained ONLY if `memory_dir` was empty. One lesson in it was enough to silence the check — while `report()`, in that very same state, printed `same directory: NO`. New complaint: `self_check.memory_dir_divergent`.
+
+  **Why the old silence was wrong.** It rested on "the user may keep a deliberate separate corpus". The module itself refutes that: lessons are created ONLY by Claude Code's auto-memory — the engine never writes them. So "directories diverged + lesson gates on" is unsatisfiable by construction: the gate demands a fresh lesson, the lesson lands in the other directory, and the engine will never see it. That is precisely the deadlock this check exists for, and people arrive there on their own: renaming or moving the repository directory changes the slug, Claude Code starts writing next door, and the previous corpus becomes a dead tail — which then silences the complaint by merely existing.
+
+  **Scope of the complaint.** Silent when the gates are off (`stop_lessons_enabled`, `task_close_lesson_gate`) — a separately curated corpus is coherent there, with the engine acting as a plain retriever over it. Silent when auto-memory is disabled: "new lessons go elsewhere" would be a lie — they go nowhere, and a separate complaint already says so. As before, it requires confirmation from disk: the auto-memory directory must exist and be non-empty.
+
+  **Invariant pinned by a test:** with gates on AND the divergence CONFIRMED on disk (the auto-memory directory exists and is non-empty), the state "`report()` prints `NO` while `settings_issues()` is empty" is now unreachable. The confirmation clause matters: if the auto-memory directory does not exist yet, `report()` still prints `NO` marked "derived, not confirmed" and no complaint is raised — deliberately, since otherwise the engine would be guessing out loud from an undocumented slug rule.
+
+### Changed
+- **The cost of the check is held for a main checkout.** The cheap gate that kept git out of the hot path was the "do I see any lessons" glob — but the new complaint is exactly about the case where lessons ARE visible. Replaced with one that is equally cheap and actually precise: for a MAIN checkout (`.git` is a directory and contains `HEAD`) the auto-memory path is derived without git at all, in two stats (`claude_code_env.default_auto_memory_dir_without_git`), and a match against `memory_dir` settles the question. The contract is pinned by a test that fails if the gate is removed.
+
+  **Who does start paying:** a healthy project opened from a git worktree, or living outside git — there the `.git` shape proves nothing, so SessionStart gains one git call (~14 ms) that 0.12.0 did not have before. For a main checkout, nothing changes. A deliberate trade: before 0.12.0 that "free" path was bought by not performing the check at all.
+- `claude_code_env.main_checkout` is now cached per process (`functools.lru_cache`): several call sites ask for it within one hook session, and the checkout root does not change inside a short-lived process.
+
 ## [0.11.0] — 2026-07-17
 
 ### ⚠ BREAKING CHANGE

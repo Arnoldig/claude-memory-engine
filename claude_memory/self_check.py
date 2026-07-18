@@ -126,28 +126,46 @@ def settings_issues(cfg: MemoryConfig) -> List[str]:
     авто-память Claude Code, и если движок читает не ту папку — он честно не видит ничего,
     страж требует записать урок, урок пишут, страж требует снова. Часы диагностики вслепую.
 
-    Три жалобы, от смертельной к бытовой:
+    Четыре жалобы, от смертельной к бытовой:
       (1) авто-память ВЫКЛЮЧЕНА, а стражи уроков включены → уроки писать НЕКОМУ (движок их
           не создаёт, он читатель). Единственная комбинация с настоящим вечным тупиком, и
           достижима одной строкой в settings.json;
       (2) `autoMemoryDirectory` задан ЯВНО и не совпадает с memory_dir → движок читает не
           ту папку. Явное значение — не догадка, поэтому жалуемся уверенно;
-      (3) memory_dir пуст, а рядом есть НЕПУСТАЯ папка авто-памяти → почти наверняка
-          наследие сломанного дефолта установщика (до 0.10.0 это был `~/.claude/memory`).
-          Жалуемся ТОЛЬКО когда догадка подтверждена диском: своих уроков ноль И у хозяина
-          они есть. Видит движок хоть один урок — молчим (возможен намеренный корпус).
+      (3) memory_dir ПУСТ, а рядом есть НЕПУСТАЯ папка авто-памяти → почти наверняка
+          наследие сломанного дефолта установщика (до 0.10.0 это был `~/.claude/memory`);
+      (4) memory_dir НЕПУСТ, но папка авто-памяти всё равно другая → корпус, который видит
+          движок, — мёртвый хвост: НОВЫЕ уроки пишутся мимо. Типичный путь сюда никто не
+          выбирал: переезд/переименование каталога репозитория меняет слаг, Claude Code
+          начинает писать в новый каталог, а memory_dir остаётся со старым.
+    (3) и (4) — один и тот же разъезд, разнесены только формулировкой: «своих уроков нет»
+    и «свои есть, но устарели навсегда» требуют разного текста, а не разной строгости.
+
+    ПОЧЕМУ (4) ПОЯВИЛАСЬ. До 0.12.0 разъезд при непустом memory_dir считался законным:
+    «видит хоть один урок — молчим, возможен намеренный корпус». Обоснование ложное, и
+    опровергает его сам модуль: уроки пишет ТОЛЬКО авто-память Claude Code. Значит связка
+    «папки разъехались + стражи уроков включены» неудовлетворима по построению — страж
+    требует свежий урок, урок уходит в другую папку, движок его не увидит НИКОГДА. Держать
+    отдельный корпус намеренно можно, но лишь с ВЫКЛЮЧЕННЫМИ стражами; там (4) и молчит.
+    По той же причине (4) молчит при выключенной авто-памяти: «новые уроки пишутся в другую
+    папку» было бы враньём — они не пишутся никуда, и про это уже сказала (1).
+
     Fail-open везде: нет файла / битый JSON / git недоступен → молчание.
 
     ЦЕНА (замерено): чтение settings.json — 0.15 мс на область, ерунда. Дорог git-вызов
-    внутри (3) — 14 мс. Поэтому порядок условий тут не косметика: дешёвый glob «вижу ли я
-    уроки» стоит ПЕРВЫМ и отсекает git у всех, у кого всё настроено. Платит только тот,
-    кто уже сломан, — а ему 14 мс не жалко.
+    внутри (3)/(4) — 14 мс, а в патологии до `timeout=5` с. До 0.12.0 его отсекал дешёвый
+    glob «вижу ли я уроки», но (4) ровно про случай, когда уроки видны, — этот отсекатель
+    больше не годится. Заменён на равноценно дешёвый и более прицельный: у ОСНОВНОГО
+    чекаута каталог авто-памяти вычисляется без git вовсе (`..._without_git`, один stat), и
+    совпадение с memory_dir закрывает вопрос. Здоровый проект платит столько же, сколько
+    платил; git остаётся worktree-сессиям и уже сломанным.
     """
     out: List[str] = []
     root = cfg.project_root
 
     disabled_at = claude_code_env.auto_memory_disabled(root)
-    if disabled_at and (cfg.stop_lessons_enabled or cfg.task_close_lesson_gate):
+    gates_on = cfg.stop_lessons_enabled or cfg.task_close_lesson_gate
+    if disabled_at and gates_on:
         out.append(msg(cfg, "self_check.auto_memory_off", scope=disabled_at))
 
     explicit = claude_code_env.configured_auto_memory_dir(root)
@@ -155,21 +173,50 @@ def settings_issues(cfg: MemoryConfig) -> List[str]:
         if not claude_code_env.same_dir(cfg.memory_dir, explicit[0]):
             out.append(msg(cfg, "self_check.memory_dir_mismatch",
                            memory_dir=cfg.memory_dir, auto_dir=explicit[0], scope=explicit[1]))
-    elif not _has_lessons(cfg):   # ← дешёвый glob ПЕРЕД git-вызовом ниже
-        confirmed = claude_code_env.existing_auto_memory_dir(root)
-        if confirmed and not claude_code_env.same_dir(cfg.memory_dir, confirmed):
+        return out
+
+    own_count = _own_lesson_count(cfg)
+    has_lessons = own_count > 0
+    if has_lessons and not (gates_on and not disabled_at):
+        return out            # намеренный корпус законен — но только без стражей, см. (4)
+
+    cheap = claude_code_env.default_auto_memory_dir_without_git(root)
+    if cheap and claude_code_env.same_dir(cfg.memory_dir, cheap):
+        return out            # ← отсекатель git: точный ответ «расхождения нет» за один stat
+
+    confirmed = claude_code_env.existing_auto_memory_dir(root)
+    if confirmed and not claude_code_env.same_dir(cfg.memory_dir, confirmed):
+        if has_lessons:
+            # own_count, а не count: у соседней жалобы (3) `count` — уроки в ЧУЖОЙ папке.
+            # Один плейсхолдер с двумя смыслами — ловушка для переводчика, а имена
+            # плейсхолдеров после релиза заморожены правилом «override ⊆ дефолта».
+            out.append(msg(cfg, "self_check.memory_dir_divergent",
+                           memory_dir=cfg.memory_dir, auto_dir=confirmed,
+                           own_count=own_count))
+        else:
             out.append(msg(cfg, "self_check.memory_dir_empty_elsewhere",
                            memory_dir=cfg.memory_dir, auto_dir=confirmed,
                            count=len(lesson_paths(replace(cfg, memory_dir=confirmed)))))
     return out
 
 
-def _has_lessons(cfg: MemoryConfig) -> bool:
-    """Видит ли движок хоть один урок в своём memory_dir (без чтения содержимого)."""
+def _own_lesson_count(cfg: MemoryConfig) -> int:
+    """Сколько уроков движок видит в СВОЁМ memory_dir (без чтения содержимого).
+
+    Было `_has_lessons() -> bool`. Стало число, потому что у `settings_issues` теперь два
+    потребителя одного факта: выбор между жалобами (3) и (4) и само число внутри (4).
+    Держать их раздельно значило бы дважды сходить в файловую систему и — хуже — оставить
+    второй вызов БЕЗ `except`: `lesson_paths` бросает OSError, и жалоба про сломанную
+    настройку роняла бы хук. Один безопасный подсчёт закрывает оба вопроса.
+
+    0 при OSError, а не «считаем, что уроки есть»: не сумев посмотреть, честнее сказать
+    «своих уроков не видно» — тогда (4) не соврёт числом, которого не знает, а разъезд всё
+    равно будет назван формулировкой (3). Путь почти недостижим: `glob` на нечитаемом
+    каталоге не бросает, а возвращает пусто."""
     try:
-        return bool(lesson_paths(cfg))
+        return len(lesson_paths(cfg))
     except OSError:
-        return True   # не смогли посмотреть → не жалуемся (fail-open)
+        return 0
 
 
 def bad_date_issues(cfg: MemoryConfig) -> List[Tuple[str, str]]:

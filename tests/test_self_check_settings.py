@@ -93,26 +93,144 @@ def test_empty_memory_dir_with_lessons_elsewhere_complains(cfg, tmp_path: Path, 
     assert any(str(auto) in i for i in issues)
 
 
-def test_not_complaining_when_engine_sees_lessons(cfg, tmp_path: Path, monkeypatch) -> None:
-    """Движок видит хоть один урок → молчим. Возможен намеренно отдельный корпус, и
-    жалоба тут была бы навязчивой."""
-    from claude_memory import claude_code_env as E
-
-    home = tmp_path / "home"
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    auto = Path(E.default_auto_memory_dir(cfg.project_root))
-    auto.mkdir(parents=True)
-    write_lesson(str(auto), "kebab-lesson.md", name="k", description="d", type="project")
-    write_lesson(cfg.memory_dir, "my-own.md", name="m", description="d", type="project")
-
-    assert SC.settings_issues(cfg) == []
-
-
 def test_not_complaining_when_neighbour_empty(cfg, tmp_path: Path, monkeypatch) -> None:
     """Соседняя папка пуста → догадка НЕ подтверждена → молчим. Иначе жаловались бы по
     недокументированному правилу слага, то есть гадали вслух."""
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
     assert SC.settings_issues(cfg) == []
+
+
+# ── (4) memory_dir НЕПУСТ, а авто-память пишется в другую папку ─────────────────
+#
+# До 0.12.0 всё это было одним тестом «видит урок → молчим» с обоснованием «возможен
+# намеренный корпус». Обоснование неверно при ВКЛЮЧЁННЫХ стражах: уроки создаёт только
+# авто-память Claude Code, значит страж требует урок, который в memory_dir не появится
+# никогда. Намеренный корпус остался законным — но лишь там, где его никто не требует
+# пополнять, и именно эту границу закрепляют два первых теста ниже.
+
+
+def _diverged(cfg, tmp_path: Path, monkeypatch) -> Path:
+    """Разъезд, подтверждённый диском: уроки есть И у движка, И в папке авто-памяти."""
+    from claude_memory import claude_code_env as E
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    auto = Path(E.default_auto_memory_dir(cfg.project_root))
+    auto.mkdir(parents=True)
+    write_lesson(str(auto), "kebab-lesson.md", name="k", description="d", type="project")
+    write_lesson(cfg.memory_dir, "my-own.md", name="m", description="d", type="project")
+    return auto
+
+
+def test_divergent_with_gates_off_is_silent(cfg, tmp_path: Path, monkeypatch) -> None:
+    """Стражи выключены → отдельный корпус связен: движок тут просто ретривер над
+    курируемой папкой, пополнять её никто не обязывает. Жалоба была бы навязчивой И
+    неустранимой — замолчать её было бы нечем."""
+    _diverged(cfg, tmp_path, monkeypatch)
+    cfg2 = replace(cfg, stop_lessons_enabled=False, task_close_lesson_gate=False)
+
+    assert SC.settings_issues(cfg2) == []
+
+
+def test_divergent_with_gates_on_complains(cfg, tmp_path: Path, monkeypatch) -> None:
+    """Стражи включены → состояние неудовлетворимо: новые уроки уходят мимо движка, и
+    Stop-страж не удовлетворить ничем. Молчать тут нельзя."""
+    auto = _diverged(cfg, tmp_path, monkeypatch)
+
+    issues = SC.settings_issues(cfg)
+    assert any("dead tail" in i for i in issues)
+    assert any(str(auto) in i and cfg.memory_dir in i for i in issues)
+
+
+def test_report_says_no_implies_complaint(cfg, tmp_path: Path, monkeypatch) -> None:
+    """ИНВАРИАНТ: при включённых стражах И разъезде, ПОДТВЕРЖДЁННОМ диском, невозможно
+    состояние «отчёт печатает NO, а жалоб нет». Разные пороги у отчёта и у жалоб —
+    намеренные (отчёт отвечает «что настроено»), но односторонне: подтверждённый приговор
+    `NO` обязан быть слышен и без просьбы человека. Тест держит именно эту связь, а не текст
+    конкретной жалобы, — он переживёт смену формулировок.
+
+    Оговорка «подтверждённом диском» — не хедж, а граница: без неё утверждение ЛОЖНО.
+    Когда каталога авто-памяти ещё нет, `report()` печатает `NO` с пометкой «выведено, не
+    подтверждено», а жалоб нет намеренно — иначе движок гадал бы вслух по недокументированному
+    правилу слага (см. `test_not_complaining_when_neighbour_empty`).
+    """
+    _diverged(cfg, tmp_path, monkeypatch)
+
+    assert "same directory    : NO" in "\n".join(SC.report(cfg))
+    assert SC.settings_issues(cfg) != []
+
+
+def test_divergent_stays_quiet_when_auto_memory_off(cfg, tmp_path: Path, monkeypatch) -> None:
+    """Авто-память выключена → «новые уроки пишутся в другую папку» было бы ВРАНЬЁМ: они не
+    пишутся никуда. Про это уже сказала жалоба (1), второй голос только путал бы."""
+    _diverged(cfg, tmp_path, monkeypatch)
+    _settings(cfg.project_root, ".claude/settings.json", {"autoMemoryEnabled": False})
+
+    issues = SC.settings_issues(cfg)
+    assert any("auto-memory is DISABLED" in i for i in issues)
+    assert not any("dead tail" in i for i in issues)
+
+
+def test_empty_memory_dir_keeps_its_own_wording(cfg, tmp_path: Path, monkeypatch) -> None:
+    """(3) и (4) — один разъезд, но разный текст. Пустой memory_dir обязан по-прежнему
+    получать формулировку про сломанный дефолт установщика, а не про мёртвый хвост."""
+    from claude_memory import claude_code_env as E
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    auto = Path(E.default_auto_memory_dir(cfg.project_root))
+    auto.mkdir(parents=True)
+    write_lesson(str(auto), "kebab-lesson.md", name="k", description="d", type="project")
+
+    issues = SC.settings_issues(cfg)   # memory_dir из фикстуры — пустой
+    assert any("almost certainly pointed at the wrong directory" in i for i in issues)
+    assert not any("dead tail" in i for i in issues)
+
+
+# ── цена: здоровый основной чекаут не платит за git ─────────────────────────────
+
+def test_healthy_main_checkout_never_shells_out_to_git(cfg, tmp_path: Path, monkeypatch) -> None:
+    """КОНТРАКТ ЦЕНЫ, а не поведения. Проверка (4) бежит на каждом SessionStart, и наивная
+    реализация звала бы git (~14 мс, в патологии до 5 с таймаута) у ВСЕХ, у кого не задан
+    `autoMemoryDirectory`, — то есть почти у всех. Отсекатель `..._without_git` обязан
+    закрывать вопрос у основного чекаута одним stat. Тест падает ровно тогда, когда кто-то
+    уберёт отсекатель: поведение при этом останется верным, и заметить регресс будет нечем.
+    """
+    from claude_memory import claude_code_env as E
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    git = Path(cfg.project_root) / ".git"              # форма основного чекаута
+    git.mkdir()
+    (git / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    auto = Path(E.default_auto_memory_dir_without_git(cfg.project_root))
+    auto.mkdir(parents=True)
+    write_lesson(str(auto), "kebab-lesson.md", name="k", description="d", type="project")
+
+    calls = []
+    monkeypatch.setattr(E, "main_checkout", lambda cwd: calls.append(cwd))
+
+    assert SC.settings_issues(replace(cfg, memory_dir=str(auto))) == []
+    assert calls == []
+
+
+def test_worktree_shape_falls_back_to_git(cfg, tmp_path: Path, monkeypatch) -> None:
+    """У worktree `.git` — ФАЙЛ, дешёвый отсекатель обязан честно сказать «не знаю» (None) и
+    пропустить вопрос к git, а не выдать слаг от пути worktree."""
+    from claude_memory import claude_code_env as E
+
+    (Path(cfg.project_root) / ".git").write_text("gitdir: /elsewhere/.git/worktrees/w\n",
+                                                 encoding="utf-8")
+    assert E.main_checkout_without_git(cfg.project_root) is None
+    assert E.default_auto_memory_dir_without_git(cfg.project_root) is None
+
+
+def test_bare_git_directory_is_not_proof_of_checkout(cfg, tmp_path: Path) -> None:
+    """Пустой каталог с именем `.git` — НЕ доказательство чекаута: внутри чужого репозитория
+    git нашёл бы РОДИТЕЛЬСКИЙ `.git`, а мы бы уверенно ответили «это корень» и замолчали по
+    ложному основанию. Отсекатель обязан требовать `HEAD` и в сомнении говорить «не знаю».
+    """
+    from claude_memory import claude_code_env as E
+
+    (Path(cfg.project_root) / ".git").mkdir()          # форма есть, содержимого нет
+    assert E.main_checkout_without_git(cfg.project_root) is None
 
 
 # ── fail-open ───────────────────────────────────────────────────────────────────
