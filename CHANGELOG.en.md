@@ -21,6 +21,13 @@ Notable changes to this project are listed here. The format follows [Keep a Chan
   **Who does start paying:** a healthy project opened from a git worktree, or living outside git — there the `.git` shape proves nothing, so SessionStart gains one git call (~14 ms) that 0.12.0 did not have before. For a main checkout, nothing changes. A deliberate trade: before 0.12.0 that "free" path was bought by not performing the check at all.
 - `claude_code_env.main_checkout` is now cached per process (`functools.lru_cache`): several call sites ask for it within one hook session, and the checkout root does not change inside a short-lived process.
 
+### Development (not shipped in the package)
+- The repository gained its first hook of its own — `.claude/hooks/issue_close_basis_guard.sh`: it blocks `gh issue close` without a stated basis. An issue here is closed by an argument, not by the fact that code changed; without a basis, a closed issue is indistinguishable from an abandoned one a month later.
+
+  Assembled from two live hooks in consumer projects, deliberately copying neither wholesale: one searched for the basis flag across the WHOLE command (`wc -c f && gh issue close 5` passed as "basis present"), the other did not mask quotes (`grep "foo; gh issue close" file` fired falsely). Both defences are taken.
+
+  **The lesson outlives the hook.** The first version died on a bash syntax error — and bash exits with code 2 on those, exactly the code PreToolUse uses to REJECT a call. A completely dead guard blocked everything and passed every "does it block what it should" check green. Hence the rule pinned in `tests/test_issue_close_basis_guard.py`: a block counts only together with the explanatory text, a pass only with empty stderr; the exit code alone is insufficient in either direction. Precisely the same class this release fixes: absence of a signal looks like "all is well".
+
 ## [0.11.0] — 2026-07-17
 
 ### ⚠ BREAKING CHANGE
