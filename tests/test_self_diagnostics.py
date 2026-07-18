@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from claude_memory import self_check as SC
 from conftest import RU_EN_CLOSE_PATTERN, write_lesson
 
@@ -212,14 +214,17 @@ def test_lag_caught_on_frozen_old_default(cfg) -> None:
     assert len(issues) == 1
     field, missing = issues[0]
     assert field == "task_close_pattern"
-    assert missing == ["Resolve", "Resolves", "Resolved"]
+    # три слова семьи resolve в обоих написаниях + все девять слов с двоеточием
+    assert set(missing) >= {"Resolve", "Resolves", "Resolved"}
+    assert "Close:" in missing and "Fix:" in missing
 
 
 def test_lag_caught_on_frozen_default_with_project_branch(cfg) -> None:
     """Форма, в которой дефект и жил у потребителей: старый дефолт + своя русская ветка.
     Добавленная ветка не должна прятать отставание английской части."""
     c = replace(cfg, task_close_pattern=_PRE_RESOLVE_DEFAULT + r"|#([\w-]+)\s+закрыт[аоы]?\b")
-    assert SC.close_pattern_lag_issues(c)[0][1] == ["Resolve", "Resolves", "Resolved"]
+    missing = SC.close_pattern_lag_issues(c)[0][1]
+    assert set(missing) >= {"Resolve", "Resolves", "Resolved", "Close:"}
 
 
 def test_lag_silent_on_current_project_pattern(cfg) -> None:
@@ -275,10 +280,10 @@ def test_lag_complaint_reaches_warnings(cfg) -> None:
     """Данные обязаны дойти до человека текстом: функция может быть верной, а ключ
     сообщения — забытым, и тогда жалоба не прозвучит."""
     c = replace(cfg, task_close_pattern=_PRE_RESOLVE_DEFAULT)
-    texts = [t for t in SC.warnings(c) if "Resolves" in t]
+    texts = [t for t in SC.warnings(c) if "Resolve" in t]
     assert len(texts) == 1, SC.warnings(c)
-    assert "Resolve, Resolves, Resolved" in texts[0]
-    assert "Resolve #42" in texts[0]        # готовый образец коммита в тексте
+    assert "Resolve" in texts[0] and "Close:" in texts[0]
+    assert "Close: #42" in texts[0]         # образец коммита готов к вставке, без вырождения
 
 
 def test_lag_requires_the_id_itself_not_just_a_match(cfg) -> None:
@@ -292,9 +297,9 @@ def test_lag_requires_the_id_itself_not_just_a_match(cfg) -> None:
              r"|(?<![\w-])resolv(?:e|es|ed)\s+(#[\w-]+)")   # у resolve-ветки решётка ВНУТРИ группы
     from claude_memory.stop_check import extract_closed_task
     assert extract_closed_task("feat: Resolves #42", mixed) == "#42"   # совпало, но id битый
-    assert SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=mixed))[0][1] == [
+    assert set(SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=mixed))[0][1]) >= {
         "Resolve", "Resolves", "Resolved"
-    ]
+    }
 
 
 def test_non_string_pattern_does_not_kill_all_diagnostics(cfg) -> None:
@@ -307,3 +312,79 @@ def test_non_string_pattern_does_not_kill_all_diagnostics(cfg) -> None:
     assert SC.close_pattern_lag_issues(c) == []
     assert SC.bad_regex_issues(c)                    # о самой описке всё же сказано
     assert isinstance(SC.warnings(c), list)          # и остальные проверки живы
+
+
+# ── Вторая координата эталона: НАПИСАНИЕ формы (заявка #13, 0.15.0) ─────────
+# GitHub принимает и `Closes #42`, и `Closes: #42`. До 0.15.0 вторую форму движок молча
+# не узнавал: задача закрывалась, привратник урока молчал.
+
+def test_lag_caught_when_only_spelling_is_behind(cfg) -> None:
+    """ГЛАВНЫЙ ТЕСТ ЭТОГО ВЫПУСКА — анти-инверсия предохранителя.
+
+    Копия дефолта 0.14.0 знает все девять СЛОВ, но ни одного написания с двоеточием: это
+    отставание, и о нём надо сказать. Прежний порог сверялся с числом СЛОВ, и при двух
+    написаниях 9 промахов из 18 совпадали с этим числом — страж принимал отставшую копию
+    за «законную полную замену» и МОЛЧАЛ, а настоящую замену наоборот обвинял. Проверка
+    начинала работать наоборот, ровно тем молчаливым способом, против которого заведена."""
+    old_default = (r"(?i)(?<![\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?|resolv(?:e|es|ed))"
+                   r"\s+#([\w-]+)")
+    missing = SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=old_default))[0][1]
+    assert missing == ["Close:", "Closes:", "Closed:", "Fix:", "Fixes:", "Fixed:",
+                       "Resolve:", "Resolves:", "Resolved:"]
+
+
+def test_full_replacement_still_silent_with_two_syntaxes(cfg) -> None:
+    """Зеркало предыдущего: настоящая полная замена обязана молчать и при 18 зондах."""
+    assert SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=r"DONE-(\d+)")) == []
+
+
+def test_threshold_is_derived_from_probes_not_frozen(cfg) -> None:
+    """Порог «узнано ноль» обязан считаться от длины списка зондов. Замороженное число
+    или множитель «×2» вернут ту же инверсию при третьем написании."""
+    from claude_memory.stop_check import GITHUB_CLOSE_KEYWORDS, GITHUB_CLOSE_SYNTAXES
+    assert len(GITHUB_CLOSE_KEYWORDS) * len(GITHUB_CLOSE_SYNTAXES) == 18
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Closes: #42", "42"),                 # документирована
+    ("CLOSES: #42", "42"),                 # документирована (регистр)
+    ("feat: Closes: #42", "42"),           # закрытие внутри конвенциональной темы
+    ("Closes:#42", "42"),                  # НЕ документирована, принята намеренно шире
+    ("Closes #moya-zadacha", "moya-zadacha"),   # слаг — только в пробельной ветке
+])
+def test_default_reads_documented_spellings(cfg, text: str, expected: str) -> None:
+    from claude_memory.stop_check import extract_closed_task
+    assert extract_closed_task(text, cfg.task_close_pattern) == expected
+
+
+@pytest.mark.parametrize("text", [
+    # Conventional Commits: `fix:` — ТИП коммита, `#слаг` — тема, а не закрываемая задача.
+    # Боевые примеры из истории проекта-потребителя (619 тем с таким префиксом); ветка,
+    # принимающая после двоеточия любой id, дала бы здесь 8 ложных блокировок Stop.
+    "fix: #chekidown-2026-05-10 — gitignore infra/prometheus/scrape_token*",
+    "fix: #tg-bot-egress-pin + #robokassa-test-password-pair (#39)",
+    "fix: #cleanup-2026-05-04 — browser console hygiene",
+    "auto-closes: #10",                    # дефис слева — не закрытие
+    "prefixed-closes: #10",
+])
+def test_default_ignores_conventional_commit_prefix(cfg, text: str) -> None:
+    from claude_memory.stop_check import extract_closed_task
+    assert extract_closed_task(text, cfg.task_close_pattern) is None
+
+
+def test_colon_branch_takes_numbers_only(cfg) -> None:
+    """Слаг после двоеточия — это Conventional Commits, а не закрытие. GitHub на
+    нечисловой id не реагирует вовсе, поэтому двоеточная ветка наследует его семантику."""
+    from claude_memory.stop_check import extract_closed_task
+    assert extract_closed_task("Closes: #memory-lib", cfg.task_close_pattern) is None
+    assert extract_closed_task("Closes #memory-lib", cfg.task_close_pattern) == "memory-lib"
+
+
+def test_reference_holds_only_documented_spellings() -> None:
+    """Эталон — строго документация; дефолт вправе быть шире, обратное — нет.
+    Слитной формы `Closes:#42` в эталоне быть не должно: требовать от чужого шаблона
+    больше, чем документирует GitHub, библиотека не вправе."""
+    from claude_memory.stop_check import GITHUB_CLOSE_SYNTAXES
+    templates = [t for _, t in GITHUB_CLOSE_SYNTAXES]
+    assert templates == ["{word} #42", "{word}: #42"]
+    assert all(":#" not in t for t in templates)

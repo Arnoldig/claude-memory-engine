@@ -114,12 +114,16 @@ def test_conftest_pattern_covers_all_github_keywords() -> None:
     from claude_memory.stop_check import extract_closed_task
     from conftest import RU_EN_CLOSE_PATTERN
 
-    from claude_memory.stop_check import GITHUB_CLOSE_KEYWORDS
+    from claude_memory.stop_check import GITHUB_CLOSE_KEYWORDS, GITHUB_CLOSE_SYNTAXES
 
+    # Обе координаты эталона: слово × написание. Копия, отставшая по НАПИСАНИЮ, — тот же
+    # класс, что копия, отставшая по слову, и сюита не должна её пропускать.
     for word in GITHUB_CLOSE_KEYWORDS:
-        assert extract_closed_task(f"feat: {word} #42", RU_EN_CLOSE_PATTERN) == "42", (
-            f"conftest-шаблон не узнаёт `{word} #42` — тесты гоняются на устаревшем правиле"
-        )
+        for _suffix, template in GITHUB_CLOSE_SYNTAXES:
+            probe = template.format(word=word)
+            assert extract_closed_task(f"feat: {probe}", RU_EN_CLOSE_PATTERN) == "42", (
+                f"conftest-шаблон не узнаёт `{probe}` — тесты гоняются на устаревшем правиле"
+            )
     # локализованная ветка — то, ради чего копия вообще существует
     assert extract_closed_task("#widget-7 закрыт", RU_EN_CLOSE_PATTERN) == "widget-7"
 

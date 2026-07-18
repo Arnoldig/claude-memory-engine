@@ -4,6 +4,29 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] — 2026-07-18
+
+### Fixed
+- **The default now understands the second documented spelling of a closing form** ([#13](https://github.com/Arnoldig/claude-memory-engine/issues/13)). GitHub accepts both `Closes #42` and `Closes: #42` — the colon is documented verbatim ("The keywords can be followed by colons or in uppercase"). The engine did not recognise the second form: GitHub closed the issue, the lesson gate stayed silent. Same class as the `resolve` family in 0.10.0, but along a different coordinate — not the KEYWORD but the SPELLING. And here it was the DEFAULT itself that had fallen behind, not a consumer's copy — behind the documentation.
+
+  **Why only a NUMBER is accepted after a colon, while a space accepts a number or a slug.** Not pedantry but measured protection. A slug (`#memory-lib-cutover`) is this engine's own convention: GitHub ignores non-numeric ids entirely. Meanwhile `word: #slug` at the start of a commit subject is Conventional Commits (`fix: #topic — what was done`), and one live consumer has 619 such subjects. Measured over its 2258-commit history: a branch accepting any id after a colon produces **8 false closures**, the "numbers only" branch produces **0**. The cost of a false hit is not cosmetic: Stop blocks until a lesson about a non-existent issue turns up. Numeric semantics after a colon mirror GitHub exactly — the branch exists because GitHub documents it, and it inherits GitHub's rules.
+
+### Changed
+- **The reference gained a second coordinate** — `stop_check.GITHUB_CLOSE_SYNTAXES`. `close_pattern_lag_issues` now builds probes as a cartesian product of "keyword × spelling" (18 probes instead of 9), so it notices lag in spelling too, not only in keywords.
+
+### A trap found by reconnaissance BEFORE it fired
+- **Naively widening the reference would have INVERTED the guard.** The check has an escape hatch: "zero forms recognised = a legitimate full replacement for another tracker". The threshold was compared against the number of KEYWORDS (9). With two spellings a lagging copy misses exactly 9 of 18 — the number matches, so the guard would have taken a lagging copy for a full replacement and FALLEN SILENT, while accusing an actual full replacement (18 of 18). Reproduced by a run before the fix: with the naive widening both live configs went silent and `DONE-(\d+)` complained. In other words the check introduced in 0.14.0 against silent lag would have started working in reverse — in precisely the manner it exists to prevent. The threshold is now derived from the LENGTH OF THE PROBE LIST: a frozen number or a "×2" multiplier would bring the same trap back with a third spelling. Pinned by `test_lag_caught_when_only_spelling_is_behind`.
+
+### Stated boundaries
+- **The tight form `Closes:#42` is accepted even though it is NOT documented** (every example in the docs has a space after the colon). Accepted deliberately wider than the documentation: the author's intent is unambiguous, and the cost is asymmetric — an extra question about a lesson is visible, explainable and expires with the marker, whereas a missed closure is invisible. The tight form is NOT in the REFERENCE: the library may not demand more from a third-party pattern than GitHub documents. The reference is strictly narrower than the default, and that direction is pinned by a test.
+- **The cross-repository form `Fixes octo-org/repo#100` is deliberately not covered.** It closes SOMEONE ELSE'S issue, while `task_lesson_recorded` looks for `#100` in OUR memory — a collision with our own issue 100 would either wave the gate through or demand a lesson under the wrong key. Current silence on this form is correct behaviour, not a gap.
+- **`GH-42` is left alone:** the docs define it as an autolink form, not a closing form — verified.
+- An external project using Conventional Commits with NUMERIC references (`fix: #123 …`) will see new hits. They are TRUE: by the documented example `Fixes: #10`, GitHub itself closes the issue on such a commit. Stated here so a future false-positive audit does not reopen the issue.
+- +15 tests (535 vs 520).
+
+### Release order
+- Both consumer projects' patterns were rebuilt on top of the new default BEFORE the engine was upgraded there, so the rollout passes without a single day of complaints. This is safe: the migrated pattern is a superset of the previous one, and the 0.14.0 check stays silent on it (verified against their live configs before the upgrade).
+
 ## [0.14.0] — 2026-07-18
 
 ### Added
