@@ -22,6 +22,7 @@ https://code.claude.com/docs/en/settings.md
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -52,6 +53,34 @@ def project_slug(path: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "-", path)
 
 
+def main_checkout_without_git(cwd: str) -> Optional[str]:
+    """Корень основного чекаута, доказанный ФОРМОЙ `.git`, БЕЗ запуска git (иначе None).
+
+    У основного чекаута `.git` — КАТАЛОГ; у worktree и submodule это файл со строкой
+    `gitdir: …`. Значит «`<cwd>/.git` — каталог» ⇒ `--git-common-dir` вернул бы ровно
+    `<cwd>/.git`, а `main_checkout` — ровно `<cwd>`. Тот же ответ за один stat вместо
+    субпроцесса (~14 мс, а в патологии — до `timeout=5` с).
+
+    Нужно затем, что дешёвая проверка «memory_dir и есть каталог авто-памяти» обязана быть
+    доступна на КАЖДОМ SessionStart. Отдельной функцией, а не флагом внутри `main_checkout`,
+    ровно потому, что тут другой контракт: «не доказали — None», без догадок. Не доказали
+    (worktree, submodule, не-git, гонка) → зовите `main_checkout`, он ответит честно.
+
+    Сверяем НЕ только форму, но и `HEAD` внутри. Без этого импликация не абсолютна: пустой
+    (или посторонний) каталог с именем `.git` внутри чужого репозитория git пропустит и
+    найдёт РОДИТЕЛЬСКИЙ `.git`, а мы бы уверенно ответили `<cwd>` — то есть выдали догадку
+    за доказательство и получили ЛОЖНОЕ МОЛЧАНИЕ, ровно тот класс дефекта, против которого
+    заведён вызывающий модуль. Второй stat дешевле такой ошибки."""
+    try:
+        git = os.path.join(cwd, ".git")
+        if os.path.isdir(git) and os.path.exists(os.path.join(git, "HEAD")):
+            return os.path.abspath(cwd)
+    except OSError:
+        return None
+    return None
+
+
+@functools.lru_cache(maxsize=None)
 def main_checkout(cwd: str) -> Optional[str]:
     """Корень ОСНОВНОГО чекаута git-репозитория ("" / None, если не git).
 
@@ -63,7 +92,12 @@ def main_checkout(cwd: str) -> Optional[str]:
     `--path-format=absolute` требует git ≥ 2.31 (2021). На более старом git вызов падает →
     None → слаг считается от самого project_root → почти наверняка промах → но
     `existing_auto_memory_dir` его не подтвердит, и путь уйдёт к человеку С ОГОВОРКОЙ.
-    То есть на древнем git деградируем в предупреждение, а не во враньё."""
+    То есть на древнем git деградируем в предупреждение, а не во враньё.
+
+    Кэш на процесс: за сессию хука ответ спрашивают несколько путей (`config`,
+    `self_check`), а корень чекаута внутри одного короткоживущего процесса не меняется —
+    платить 14 мс повторно не за что. В тестах, где репозиторий создают на ходу, звать
+    `main_checkout.cache_clear()`."""
     try:
         out = subprocess.check_output(
             ["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -84,7 +118,23 @@ def default_auto_memory_dir(project_root: str) -> Optional[str]:
     он всё равно чем-то будет — и проверка диском (`existing_auto_memory_dir`) отсеет
     промах. Здесь мы не утверждаем, а предлагаем кандидата."""
     root = main_checkout(project_root) or os.path.abspath(project_root)
-    return str(Path.home() / ".claude" / "projects" / project_slug(root) / "memory")
+    return _auto_dir_for_checkout(root)
+
+
+def _auto_dir_for_checkout(checkout_root: str) -> str:
+    """`~/.claude/projects/<слаг>/memory` для УЖЕ известного корня чекаута."""
+    return str(Path.home() / ".claude" / "projects" / project_slug(checkout_root) / "memory")
+
+
+def default_auto_memory_dir_without_git(project_root: str) -> Optional[str]:
+    """Тот же путь, что у `default_auto_memory_dir`, но только когда его можно получить БЕЗ
+    git (иначе None). Не запасной вариант, а быстрый: ответ либо точный, либо никакой.
+
+    Это разрешено единственным свойством: слаг считается от корня основного чекаута, а
+    `main_checkout_without_git` доказывает этот корень формой `.git`. Догадки тут нет —
+    поэтому результат можно сравнивать с `memory_dir` и делать вывод «расхождения нет»."""
+    root = main_checkout_without_git(project_root)
+    return None if root is None else _auto_dir_for_checkout(root)
 
 
 def existing_auto_memory_dir(project_root: str) -> Optional[str]:
