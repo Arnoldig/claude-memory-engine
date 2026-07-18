@@ -4,7 +4,26 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [0.14.0] — 2026-07-18
+
+### Added
+- **Self-check now speaks up when a project's closing pattern has FALLEN BEHIND the default** ([#8](https://github.com/Arnoldig/claude-memory-engine/issues/8)). New complaint `self_check.close_pattern_lag`: `task_close_pattern` fails to recognise some of GitHub's nine official closing keywords.
+
+  **The class of defect this closes.** Some fields are copied from the default in order to ADD to them rather than replace them: `task_close_pattern` is taken whole and a Russian branch is appended. From that moment the copy is frozen at whatever the default looked like on copying day, while the library keeps extending its own. The `resolve/resolves/resolved` family added in 0.10.0 reached NO consumer at all: for a release and a half `Resolves #N` went silently unrecognised in both live projects. A lagging pattern is nastier than a narrow one — it was CORRECT, nobody wrote it badly, and no occasion to re-check ever arises. Neighbouring classes were already covered: BROKEN is caught by `bad_regex_issues` since 0.9.7, while LAGGING compiles, runs and stays quiet.
+
+  **The signal is "partial coverage", not "differs from the default".** Comparing text against the default fails twice over. First, an override is DELIBERATE: "yours is not like the default" is nagging, unfixable, and would be the first thing switched off — precisely the mistake dissected in [#5](https://github.com/Arnoldig/claude-memory-engine/issues/5). Second, the textual signal breaks on the very case it targets: a lagging copy contains the OLD default as a substring, so it still looks "built on the default" long after it fell behind. Hence the verdict comes from BEHAVIOUR — the nine forms are run through the same `extract_closed_task` the live gate calls.
+
+  **Three silent cases, all legitimate:** zero forms recognised (a full replacement for a different tracker), all nine (coverage holds, whatever else the pattern adds), and `task_close_lesson_gate` switched off (complaining about an unused pattern would be noise). There is deliberately NO "don't nag about incompleteness" knob: GitHub closes an issue on any of the nine keywords regardless of what the engine thinks, so a partial pattern under-fires objectively, and such a knob would reproduce the original class — a guard switched off so it stops getting in the way.
+
+  **Verified against live data, not just tests:** on both live projects' current configs the check stays silent; on their own pre-fix snapshots it reports exactly the `resolve` family. In other words, it would have caught a defect that really did live for a release and a half.
+
+### Changed
+- **The nine-keyword reference now lives in ONE place** — `stop_check.GITHUB_CLOSE_KEYWORDS`. It used to exist as three disconnected copies: a tuple in `tests/test_examples_sync.py`, a tuple in `tests/test_repo_invariants.py`, and prose in a `config.py` comment. Adding a fourth copy for the lag check would have reproduced the defect inside its own fix. Both test copies are now imports, and the config comment points at the constant.
+- New lock: the default `task_close_pattern` must recognise EVERY form in the constant — default and reference can no longer drift apart in silence.
+
+### Stated boundaries
+- **Exactly one field qualifies for the "has fallen behind" signal.** Every config field was classified into three categories: reference (the default mirrors a closed external list), template (a project legitimately replaces it wholesale), and switch. Only `task_close_pattern` is a reference. The nearest candidates and why they dropped out: `lesson_prefixes` — since 0.10.0 it no longer decides "what a lesson is" (`lesson_files.is_lesson_file` does), so it stopped being a gate; `session_close_pattern` — its default is a neutral English placeholder phrase that a project is SUPPOSED to replace; `known_model_substrs` / `strongest_model_substr` — these self-correct through runtime guards. The mechanism is therefore deliberately narrow: a "field → reference" registry with a single entry would be generalising ahead of demand, though the return shape is general and a second field would be one added line.
+- +12 tests (520 vs 508).
 
 ### Development (not shipped in the package)
 - **A check for closure basis on issues closed AUTOMATICALLY** — `.claude/hooks/issue_close_basis_audit.sh` (Stop). Found on our own issue #6: it was closed by merging a PR (`Resolves #6` appeared both in the squash commit body and in the PR description), the `gh issue close` command never ran, and `issue_close_basis_guard.sh` was never invoked — it guards the command only. The basis had to be added by hand five minutes later.

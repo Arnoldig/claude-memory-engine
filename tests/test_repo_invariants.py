@@ -114,9 +114,9 @@ def test_conftest_pattern_covers_all_github_keywords() -> None:
     from claude_memory.stop_check import extract_closed_task
     from conftest import RU_EN_CLOSE_PATTERN
 
-    nine = ("Close", "Closes", "Closed", "Fix", "Fixes", "Fixed",
-            "Resolve", "Resolves", "Resolved")
-    for word in nine:
+    from claude_memory.stop_check import GITHUB_CLOSE_KEYWORDS
+
+    for word in GITHUB_CLOSE_KEYWORDS:
         assert extract_closed_task(f"feat: {word} #42", RU_EN_CLOSE_PATTERN) == "42", (
             f"conftest-шаблон не узнаёт `{word} #42` — тесты гоняются на устаревшем правиле"
         )

@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 508](https://img.shields.io/badge/tests-508-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 520](https://img.shields.io/badge/tests-520-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -130,7 +130,7 @@ The engine ships several "guards" — small automatic checks. They fire at diffe
 
 **Expensive sub-agent model.** Once per session it warns if a helper sub-agent is launched on the strongest (expensive) model or without an explicit model choice. On.
 
-**Config self-check.** At every startup it catches settings errors that break things silently: typos in message overrides and in key names, broken regex patterns, non-ISO dates, and any divergence from Claude Code's own settings — the engine looking at a different folder than the one auto-memory writes to, or auto-memory being off so nobody can write lessons at all. The last one matters most: from the outside it looks like "all good, just no lessons yet". On.
+**Config self-check.** At every startup it catches settings errors that break things silently: typos in message overrides and in key names, broken regex patterns, non-ISO dates, a task-close pattern (`task_close_pattern`) that has fallen behind the engine's default, and any divergence from Claude Code's own settings — the engine looking at a different folder than the one auto-memory writes to, or auto-memory being off so nobody can write lessons at all. A lagging pattern isn't the same as a broken one: it compiles and runs fine, it just silently fails to recognize some of GitHub's official closing keywords (for example the `resolve/resolves/resolved` family, added in 0.10.0 after the project's copy had already been split off from the default); the check stays quiet on a deliberate full replacement for another issue tracker (a pattern that recognizes none of the words). The last one (Claude Code divergence) matters most: from the outside it looks like "all good, just no lessons yet". On.
 
 ## Module map
 

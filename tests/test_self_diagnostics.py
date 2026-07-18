@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from conftest import write_lesson
+from claude_memory import self_check as SC
+from conftest import RU_EN_CLOSE_PATTERN, write_lesson
 
 
 # ── self_check: сверка плейсхолдеров override ⊆ дефолта ─────────────────────────
@@ -191,3 +192,118 @@ def test_pulse_count_check_off_when_zero(cfg) -> None:
                      description=f"d{i}", topic="workflow")
     _, diag = cg.build_catalog(cfg.memory_dir, cfg0)
     assert cg.format_health_pulse(diag, cfg0) == ""
+
+
+# ── Отставший шаблон закрытия (заявка #8, 0.14.0) ───────────────────────────
+# Класс: шаблон КОМПИЛИРУЕТСЯ и работает, но был скопирован из старого дефолта и
+# заморозился, а дефолт с тех пор вырос. Соседний класс (СЛОМАННЫЙ шаблон) ловит
+# bad_regex_issues; этот молчал полтора релиза в обоих боевых проектах.
+
+# Дефолт ДО 0.10.0 — намеренно замороженная история: шесть слов из девяти, нет семьи
+# `resolve`. Ровно это значение и разъехалось у потребителей. Трекать текущий дефолт
+# эта строка не обязана и не должна.
+_PRE_RESOLVE_DEFAULT = r"(?i)(?<![\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
+
+
+def test_lag_caught_on_frozen_old_default(cfg) -> None:
+    """Исторический снимок обязан ловиться: это воспроизведение реального дефекта."""
+    c = replace(cfg, task_close_pattern=_PRE_RESOLVE_DEFAULT)
+    issues = SC.close_pattern_lag_issues(c)
+    assert len(issues) == 1
+    field, missing = issues[0]
+    assert field == "task_close_pattern"
+    assert missing == ["Resolve", "Resolves", "Resolved"]
+
+
+def test_lag_caught_on_frozen_default_with_project_branch(cfg) -> None:
+    """Форма, в которой дефект и жил у потребителей: старый дефолт + своя русская ветка.
+    Добавленная ветка не должна прятать отставание английской части."""
+    c = replace(cfg, task_close_pattern=_PRE_RESOLVE_DEFAULT + r"|#([\w-]+)\s+закрыт[аоы]?\b")
+    assert SC.close_pattern_lag_issues(c)[0][1] == ["Resolve", "Resolves", "Resolved"]
+
+
+def test_lag_silent_on_current_project_pattern(cfg) -> None:
+    """МОЛЧАНИЕ на текущей боевой форме (дефолт + русские ветки) — то, что стоит в обоих
+    живых конфигах сегодня. Тест берёт conftest-копию, а не файл с чужой машины: тест,
+    зависящий от чужого ноутбука, закрепляет ноутбук, а не поведение."""
+    assert SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=RU_EN_CLOSE_PATTERN)) == []
+
+
+def test_lag_silent_on_library_default(cfg) -> None:
+    assert SC.close_pattern_lag_issues(cfg) == []
+
+
+def test_default_pattern_covers_every_keyword(cfg) -> None:
+    """Замок на сам дефолт: он обязан узнавать КАЖДУЮ форму эталона. Без него дефолт и
+    константа могли бы разъехаться — та же болезнь, что чинит заявка #8."""
+    from claude_memory.stop_check import GITHUB_CLOSE_KEYWORDS, extract_closed_task
+
+    for word in GITHUB_CLOSE_KEYWORDS:
+        assert extract_closed_task(f"feat: {word} #42", cfg.task_close_pattern) == "42", word
+
+
+def test_lag_silent_on_full_replacement(cfg) -> None:
+    """0 из 9 — это законная ПОЛНАЯ замена под чужой трекер, а не отставание.
+    Жалоба здесь была бы навязчивой и неустранимой — такую отключают первой."""
+    assert SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=r"DONE-(\d+)")) == []
+
+
+def test_lag_silent_when_gate_disabled(cfg) -> None:
+    """Страж выключен целиком — шаблон не используется, жалоба была бы шумом."""
+    c = replace(cfg, task_close_pattern=_PRE_RESOLVE_DEFAULT, task_close_lesson_gate=False)
+    assert SC.close_pattern_lag_issues(c) == []
+
+
+def test_lag_silent_on_empty_pattern(cfg) -> None:
+    assert SC.close_pattern_lag_issues(replace(cfg, task_close_pattern="")) == []
+
+
+def test_broken_regex_yields_exactly_one_complaint(cfg) -> None:
+    """У битого шаблона lag-проверка обязана молчать: иначе один дефект даёт две жалобы,
+    и человек чинит не то. Порядок в warnings() тоже проверяем — грубая идёт первой."""
+    c = replace(cfg, task_close_pattern=r"(?i)(?<![\w-])clos(e|es|ed)\s+#([\w-]+")  # скобка не закрыта
+    assert SC.close_pattern_lag_issues(c) == []
+    assert SC.bad_regex_issues(c)
+    texts = SC.warnings(c)
+    # Признак берём из текста ИМЕННО lag-жалобы: имя поля `task_close_pattern` стоит и в
+    # жалобе про битый regex, поэтому по нему две жалобы неразличимы.
+    assert sum("closing keyword" in t for t in texts) == 0
+    assert sum("not a valid regular expression" in t for t in texts) == 1
+
+
+def test_lag_complaint_reaches_warnings(cfg) -> None:
+    """Данные обязаны дойти до человека текстом: функция может быть верной, а ключ
+    сообщения — забытым, и тогда жалоба не прозвучит."""
+    c = replace(cfg, task_close_pattern=_PRE_RESOLVE_DEFAULT)
+    texts = [t for t in SC.warnings(c) if "Resolves" in t]
+    assert len(texts) == 1, SC.warnings(c)
+    assert "Resolve, Resolves, Resolved" in texts[0]
+    assert "Resolve #42" in texts[0]        # готовый образец коммита в тексте
+
+
+def test_lag_requires_the_id_itself_not_just_a_match(cfg) -> None:
+    """Зонд требует, чтобы шаблон вернул САМ id (`42`), а не просто «что-то совпало».
+
+    Без этой строгости мимо проверки прошёл бы шаблон, где дописанная ветка захватывает
+    `#42` вместе с решёткой: слово узнано, а боевой страж пойдёт искать урок про `##42` и
+    не найдёт никогда — гейт неисправен ровно тем же молчаливым способом. Пробел нашло
+    ревью: мутация `!= "42"` → `is None` проходила всю сюиту зелёной."""
+    mixed = (r"(?i)(?<![\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?)\s+#([\w-]+)"
+             r"|(?<![\w-])resolv(?:e|es|ed)\s+(#[\w-]+)")   # у resolve-ветки решётка ВНУТРИ группы
+    from claude_memory.stop_check import extract_closed_task
+    assert extract_closed_task("feat: Resolves #42", mixed) == "#42"   # совпало, но id битый
+    assert SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=mixed))[0][1] == [
+        "Resolve", "Resolves", "Resolved"
+    ]
+
+
+def test_non_string_pattern_does_not_kill_all_diagnostics(cfg) -> None:
+    """Описка в типе (`"task_close_pattern": 42`) не должна уносить ВСЕ жалобы разом.
+
+    `_coerce` типы строковых полей не приводит, `re.compile(42)` даёт TypeError, а он не
+    `re.error` — без перехвата падал бы весь `warnings()`, и человек терял бы заодно
+    диагностику расхождения каталогов, опечаток в ключах и всего прочего."""
+    c = replace(cfg, task_close_pattern=42)          # type: ignore[arg-type]
+    assert SC.close_pattern_lag_issues(c) == []
+    assert SC.bad_regex_issues(c)                    # о самой описке всё же сказано
+    assert isinstance(SC.warnings(c), list)          # и остальные проверки живы
