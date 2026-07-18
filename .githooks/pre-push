@@ -14,6 +14,43 @@
 root="$(git rev-parse --show-toplevel 2>/dev/null)"
 [ -n "$root" ] && [ -f "$root/claude_memory/__init__.py" ] || exit 0
 
+# ── Приватные слова: НЕ пускаем в публичный репозиторий ──────────────────────
+# Второй слой к `.claude/hooks/private_words_guard.sh` (тот стережёт публикацию текста
+# через `gh`). Здесь — то, чего он видеть не может: сообщения уходящих коммитов и
+# содержимое файлов. Список слов лежит ВНЕ git (`.claude/private-words.txt`): файл,
+# перечисляющий то, что нужно скрыть, нельзя версионировать в публичном репозитории.
+# Нет списка → проверка молчит: у внешнего участника этих слов нет.
+#
+# Этот блок push БЛОКИРУЕТ (в отличие от напоминания выше): утёкшее слово из публичного
+# репозитория обратно не забрать — переписывание истории меняет все хеши и рвёт теги.
+words_file="$root/.claude/private-words.txt"
+if [ -f "$words_file" ]; then
+  pattern="$(grep -vE '^\s*(#|$)' "$words_file" | sed 's/[][\.*^$(){}?+|/]/\\&/g' | paste -sd'|' -)"
+  if [ -n "$pattern" ]; then
+    range=""
+    if git rev-parse -q --verify '@{u}' >/dev/null 2>&1; then range="@{u}..HEAD"; fi
+    hits=""
+    # сообщения уходящих коммитов
+    if [ -n "$range" ]; then
+      hits="$(git log "$range" --format='%H %s' 2>/dev/null | grep -iE "$pattern" || true)"
+    fi
+    # содержимое отслеживаемых файлов (весь срез, а не только изменённые: слово могло
+    # приехать раньше и остаться незамеченным)
+    # `:(exclude)` на сам список: он ПО СОДЕРЖАНИЮ состоит из искомых слов, и без этого
+    # страж срабатывал бы на собственной настройке. Что список не в git — отдельная
+    # проверка (`test_word_list_is_not_versioned`), и её нельзя подменять этой.
+    files="$(git grep -liE "$pattern" -- . ':(exclude).claude/private-words.txt' 2>/dev/null || true)"
+    if [ -n "$hits" ] || [ -n "$files" ]; then
+      printf '\n\033[31m✖  [private-words]\033[0m Push остановлен: в репозиторий уезжают приватные слова.\n' >&2
+      [ -n "$hits" ]  && { printf '   в сообщениях коммитов:\n' >&2; echo "$hits" | sed 's/^/     /' >&2; }
+      [ -n "$files" ] && { printf '   в файлах:\n' >&2; echo "$files" | sed 's/^/     /' >&2; }
+      printf '   Репозиторий публичный. Замени названия на обезличенные и повтори.\n' >&2
+      printf '   Список: .claude/private-words.txt (вне git). Обойти: git push --no-verify.\n\n' >&2
+      exit 1
+    fi
+  fi
+fi
+
 ver="$(sed -n 's/^__version__ = "\([0-9][0-9.]*\)".*/\1/p' "$root/claude_memory/__init__.py" | head -1)"
 [ -n "$ver" ] || exit 0
 tag="v$ver"
