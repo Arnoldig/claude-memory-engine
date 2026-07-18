@@ -4,7 +4,7 @@
 
 Долговременная автообновляемая память «уроков» для Claude Code: нужный урок показывается сам, когда он пригодится. Подбор подходящих уроков ведёт обычный код, а не ИИ, поэтому работает быстро, офлайн и без сторонних зависимостей.
 
-![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 561](https://img.shields.io/badge/tests-561-brightgreen)
+![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 580](https://img.shields.io/badge/tests-580-brightgreen)
 
 **Русский** · [English](README.en.md)
 

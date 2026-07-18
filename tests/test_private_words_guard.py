@@ -172,3 +172,53 @@ def test_prepush_blocks_and_passes(tmp_path: Path) -> None:
     dirty = run_hook()
     assert dirty.returncode == 1, "приватное слово в файле обязано останавливать push"
     assert "private-words" in dirty.stderr and "readme.md" in dirty.stderr
+
+
+# ── Шаблоны: ключи, почта, телефон (то, что списком слов не выражается) ─────
+# Ключ каждый раз разный — перечислить нельзя, узнаётся формат. Шаблоны живут в коде:
+# формат токена публичен, скрывать в нём нечего, а версионировать полезно.
+
+@pytest.mark.parametrize("secret", [
+    "ghp_" + "a" * 36,                                  # токен GitHub
+    "github_pat_" + "b" * 45,                           # fine-grained
+    "sk-ant-" + "c" * 30,                               # ключ Anthropic
+    "sk-" + "d" * 32,                                   # ключ OpenAI
+    "AKIA" + "E" * 16,                                  # ключ AWS
+    "xoxb-1234567890-abcdefghij",                       # токен Slack
+    "-----BEGIN RSA PRIVATE KEY-----",                  # приватный ключ
+    "человек@почта.рф".replace("человек", "user1"),     # адрес почты
+    "+7 916 123 45 67",                                 # телефон
+])
+def test_blocks_secrets_by_pattern(sandbox: Path, secret: str) -> None:
+    p = _run(f'gh issue comment 8 --body "контекст {secret} конец"', sandbox)
+    assert _blocks(p)
+
+
+def test_secret_is_truncated_in_the_message(sandbox: Path) -> None:
+    """Полный секрет в тексте ошибки — это ещё одна его копия, теперь в журнале сессии."""
+    token = "ghp_" + "z" * 36
+    p = _run(f'gh issue comment 8 --body "{token}"', sandbox)
+    assert p.returncode == 2
+    assert token not in p.stderr, "страж не имеет права печатать секрет целиком"
+    assert "ghp_zzzzzz" in p.stderr and "…" in p.stderr
+
+
+@pytest.mark.parametrize("text", [
+    "noreply@github.com",                     # намеренные адреса не прячут
+    "user@example.com",
+    "someone@anthropic.com",
+    "версия 0.15.0 собрана 2026-07-18",       # телефонный шаблон не ловит версии и даты
+    "коммит aab86dd80f1c2b3a4d5e6f70",        # и хеши
+    "порт 8080, таймаут 14400",
+    "sk-",                                    # обрывки без тела не секрет
+    "ghp_short",
+])
+def test_patterns_do_not_fire_on_safe_text(sandbox: Path, text: str) -> None:
+    assert not _blocks(_run(f'gh issue comment 8 --body "{text}"', sandbox))
+
+
+def test_patterns_work_without_word_list(tmp_path: Path) -> None:
+    """Шаблоны в КОДЕ, поэтому обязаны работать и там, где приватного списка нет вовсе —
+    у внешнего участника проекта ключ не должен уехать в публичный комментарий."""
+    (tmp_path / ".claude").mkdir()
+    assert _blocks(_run(f'gh issue comment 8 --body "{"ghp_" + "q" * 36}"', tmp_path))
