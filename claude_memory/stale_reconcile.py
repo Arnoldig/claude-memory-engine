@@ -254,6 +254,12 @@ def _guard_states(cfg: MemoryConfig) -> Tuple[List[str], List[str]]:
         ("stale_reconcile.guard.stale_lessons", bool(getattr(cfg, "stale_reconcile_gate", False))),
         ("stale_reconcile.guard.record_lessons", bool(getattr(cfg, "stop_lessons_enabled", False))),
         ("stale_reconcile.guard.task_close", bool(getattr(cfg, "task_close_lesson_gate", False))),
+        # Второй источник сигнала о закрытии задачи виден отдельной строкой: он зависит от
+        # мастер-гейта, и без этой строки «task-close включён» читалось бы как «закрытие
+        # через gh issue close тоже замечается», что неверно при выключенной ручке.
+        ("stale_reconcile.guard.task_close_watch",
+         bool(getattr(cfg, "task_close_lesson_gate", False)
+              and getattr(cfg, "task_close_command_watch", False))),
         ("stale_reconcile.guard.archive_age", (getattr(cfg, "archive_stale_months", 0) or 0) > 0),
         ("stale_reconcile.guard.lesson_count", (getattr(cfg, "lesson_count_warn", 0) or 0) > 0),
         ("stale_reconcile.guard.model_registry",

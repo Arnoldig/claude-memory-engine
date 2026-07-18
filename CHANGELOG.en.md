@@ -4,6 +4,42 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] — 2026-07-18
+
+### Fixed
+- **The task-closure gate is no longer blind to closures made through GitHub Issues** ([#6](https://github.com/Arnoldig/claude-memory-engine/issues/6)). `task_close_lesson_gate` learned about a closure in exactly ONE way — by reading the text of the last commit (`git log -1 --format=%B`). While tasks lived in a markdown tracker, closing a task WAS a commit editing that tracker file, so the two coincided. Once tasks moved to GitHub Issues, they are closed with `gh issue close`, which creates no commit at all: the gate honestly found no match and said nothing.
+
+  **How large the hole was.** Measured on two live projects, over commits made after their move to Issues: in the project with no home-grown compensation the gate saw 2 closures out of 10. In the project whose own hook FORCED a closing commit — 6 out of 8. In other words, the gate worked not because of the engine but because of scaffolding each consumer had to reinvent.
+
+  **Why the pattern is not the cure.** `task_close_pattern` is correct and compiles — `bad_regex_issues` is powerless here. The defect is not a broken setting but a correct setting applied to a source that stopped carrying the signal. So the SOURCE was widened, not the pattern.
+
+### Added
+- **`issue_close_watch` — a second source for the closure signal.** A PostToolUse hook on `Bash` notices a `gh issue close` that has actually run, drops a marker into memory, and Stop reads that marker and asks for the lesson exactly as the commit path does. The new hook registration is added idempotently by the existing `install.sh`.
+
+  **Why PostToolUse and not PreToolUse.** What is needed is the FACT of a closure, not the intent: before execution the command may be denied by another guard (both live consumers have their own basis-guard sitting on `gh issue close`), refused by the human at the permission prompt, or `gh` itself may fail. A marker written on intent is a false debt and a false block at Stop. The engine does not forbid closures — forbidding is project policy; the engine's job is to remember and ask for the lesson.
+
+  **Why the marker lives in memory, not in TMPDIR.** Every other marker in the engine lives in `tempfile.gettempdir()` and is lost when TMPDIR changes between hook invocations — a known trap. Here a lost marker would mean a silently missed closure, i.e. a RELAPSE of the very defect being fixed. The marker sits in `memory_dir` under the private prefix (outside git, shared across all worktrees, survives restarts). But `memory_dir` is shared with PARALLEL sessions too, so the marker name carries a fingerprint of the working directory (sha256, not `hash()` — that one is randomised per process): a closure in one worktree does not block finishing in another, which has neither the task context nor any reason to write a lesson about it.
+
+  **Three fuses against a permanent block**, deliberately redundant: the marker is cleared by a lesson containing `#<number>`; by ANY lesson written after the marker (both live projects name tasks by slug, not number — an exact search would never find them); and by the marker's own expiry, `task_close_marker_ttl_seconds`. A guard that can lock a session forever is worse than no guard: it gets switched off wholesale, usefulness included.
+- Settings `task_close_command_watch` (default `true`) and `task_close_marker_ttl_seconds` (default 14400 — the same window as `stop_commit_age_limit_seconds`). `task_close_lesson_gate` remains the master switch. The default is ON deliberately: this project already has a history of "a default that never worked" (0.11.0), and a guard disabled by default does not close the hole it was written for — it only lets you claim it is closed.
+- The session-closing checklist shows the second source on its own line (`task-close-watch`): without it, "task-close is on" would read as "closures by command are noticed too", which is false when the switch is off.
+
+### Changed
+- **The commit path's boundary is now stated out loud** in the docstring of `stop_check.closure_reminder`: it reads ONLY the text of the last commit and knows no other way of closing a task. This was already true before 0.13.0, but not obvious — and consumers learned it from their own lost lessons.
+- The hook now runs on EVERY `Bash` command, so the no-match path costs nothing: not a single disk access before the detector finds a closure.
+
+### Stated boundaries (not planned to be fixed)
+- Parsing a shell command here is a heuristic, not shell grammar: a full parser inside a hook would introduce defects worse than the ones it closes. **False misses:** aliases and wrapper scripts around `gh`, `xargs gh …`, closing via `gh api`/curl, closing in the web UI or in another terminal outside Claude Code — all of these remain the commit path's business. **False hits:** nested quotes and heredoc bodies where the closing phrase is merely mentioned (test harnesses, documentation) — cheap, and self-clearing via any lesson or the marker's expiry.
+- Both MIRROR-IMAGE traps of the detector itself are closed and pinned by tests: the false hit from unmasked quotes (`grep "foo; gh issue close" file`) and the false silence from looking for the marker across the whole command line instead of the argument tail of `close` itself.
+- **A test for the PASS-THROUGH case is as mandatory as the test for blocking** — and it matters more: a dead guard passes every "does it say no" check with flying colours. A pass-through counts only on total silence (empty stdout, empty stderr, zero exit code). Same lesson as the one closed in 0.12.0.
+
+### Caught by pre-release review (all three are one class: silent loss of signal)
+- **Quadratic tail parsing.** The URL branch of the number pattern walked every slash from every starting position on a long SOLID slash-heavy token: measured 40 KB → 3.9 s, and 60 KB already exceeds the hook timeout (10 s). This is not about speed: a hook killed by timeout loses a REAL closure silently, i.e. reproduces the very defect being fixed by another route. The tail is now bounded, parsing is linear (200 KB → 3.4 ms), and the invariant is pinned by a timing test.
+- **A wrong number instead of an unknown one.** `gh issue close $N --comment "attempt 3"` returned task "#3" picked out of a human sentence. A wrong number is WORSE than none: it clears the debt against a lesson about a different task — silent miss again. The number is now read only up to the first flag; the rare `close --repo o/r 5` form pays for this by losing the number in the message text, but the lesson is still required.
+- **Non-atomic marker write.** `write_text` is truncate + write, and a parallel session could read the marker empty, judge it corrupt and sweep away a fresh closure. Writing now goes through a temp file plus `os.replace`. The window is microseconds wide, but `memory_dir` is shared across all worktrees and parallel sessions are the norm here.
+- Also added: a test binding "every event in the hook registry has a branch in the dispatcher" — a typo in the name would produce a completely dead hook, and an unknown name is swallowed silently by the dispatcher.
+- +63 tests (491 vs 428).
+
 ## [0.12.0] — 2026-07-18
 
 ### Fixed
