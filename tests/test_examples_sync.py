@@ -42,6 +42,8 @@ MUST_MIRROR_DEFAULT = (
     "stop_commit_age_limit_seconds",
     "stop_lessons_enabled",
     "task_close_lesson_gate",
+    "task_close_command_watch",
+    "task_close_marker_ttl_seconds",
     "stale_reconcile_gate",
     "llm_actuality_enabled",
     "retrieve_cache_enabled",

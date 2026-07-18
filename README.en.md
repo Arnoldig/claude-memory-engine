@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 428](https://img.shields.io/badge/tests-428-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 491](https://img.shields.io/badge/tests-491-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -116,7 +116,7 @@ The engine ships several "guards" — small automatic checks. They fire at diffe
 
 **Record lessons.** At the end of a turn, if no lesson has been written after a fresh commit, the engine gently reminds you to capture the outcome. Triggered by a commit, checked at turn end. On.
 
-**Task close.** At the end of a turn, if a commit closes a task (`Closes #N`) but no lesson for it exists, the engine asks you to write one. This is a separate guard from "stale lessons", with its own trigger — a commit, not the phrase. On.
+**Task close.** At the end of a turn, if a commit closes a task (`Closes #N`) but no lesson for it exists, the engine asks you to write one. This is a separate guard from "stale lessons", with its own trigger — a commit, not the phrase. Honestly, this path has a blind spot: it only ever sees the text of the LAST commit, and the `gh issue close` command creates no commit at all — once a project's tracker moves to GitHub Issues, the guard stays quiet on exactly those closures. So there is a second source for the same signal: a Bash hook notices the `gh issue close` command itself and drops a marker in memory, and the same guard reads that marker at Stop and asks for a lesson just as it would for a commit. On by default (`task_close_command_watch`); the marker expires after `task_close_marker_ttl_seconds` seconds (4 hours by default).
 
 **Archive retention.** At session end the engine flags archived lessons older than six months and shows them at the next start as review candidates. The memory never deletes anything itself — that is your call. On (6 months); `0` disables.
 
@@ -166,6 +166,7 @@ A table for those who will read or extend the code: which feature is implemented
 | Parallel-session protection | `memory_concurrency` |
 | Single-line session marker format | `session_marker_guard` |
 | Reminder to record a lesson on exit | `stop_check` |
+| Second source for the task-close signal (`gh issue close` command) | `issue_close_watch` |
 | Stale-lessons checklist on the close phrase | `stale_reconcile` |
 | Guard against the expensive model for sub-agents | `subagent_model_guard` |
 | Sub-agent delegation log | `subagent_efficiency_log` |

@@ -27,6 +27,7 @@ from typing import Optional
 
 from . import (
     catalog_generate,
+    issue_close_watch,
     memory_archive,
     memory_concurrency,
     memory_retrieve,
@@ -456,12 +457,18 @@ def ev_stop(
     """Stop: причина блокировки завершения или None.
 
     По убыванию приоритета: привратник закрытия задачи (коммит `Closes #N` без урока про
-    задачу) → общий (свежий коммит без записанного позже урока). Страж устаревших уроков
-    из Stop убран — он теперь срабатывает на фразу закрытия сессии (UserPromptSubmit), см.
-    stale_reconcile.reconcile_on_close. session_id/tmpdir сохранены в сигнатуре для
-    совместимости вызова диспетчера."""
+    задачу) → закрытие командой `gh issue close` без урока (метка от PostToolUse, см.
+    issue_close_watch) → общий (свежий коммит без записанного позже урока). Страж
+    устаревших уроков из Stop убран — он теперь срабатывает на фразу закрытия сессии
+    (UserPromptSubmit), см. stale_reconcile.reconcile_on_close. session_id/tmpdir
+    сохранены в сигнатуре для совместимости вызова диспетчера.
+
+    Коммит-путь стоит ПЕРВЫМ намеренно: он старше, его текст точнее (номер задачи взят
+    из шаблона проекта), и порядок гарантирует, что добавление второго источника не
+    может подменить собой существующее срабатывание — только добавить новое."""
     return (
         stop_check.closure_reminder(cfg, cwd)
+        or issue_close_watch.pending_reminder(cfg, cwd, now_ts)
         or stop_check.should_remind(cfg, cwd, now_ts)
     )
 
@@ -522,6 +529,10 @@ def main() -> None:
             _emit_post_context(ev_post_record(data, cfg, session_id, tmpdir) or "")
         elif event_name == "bloat-check":
             _emit_post_context(ev_bloat_check(data, cfg))
+        elif event_name == "issue-close-watch":
+            _emit_post_context(issue_close_watch.record_close(
+                data, cfg, os.getcwd(), time.time(), session_id
+            ) or "")
         elif event_name == "agent-guard":
             r = ev_agent_guard(data, cfg, session_id, tmpdir)
             if r:

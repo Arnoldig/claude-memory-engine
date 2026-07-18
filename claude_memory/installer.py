@@ -24,6 +24,9 @@ HOOK_REGISTRATIONS: List[Tuple[str, str, str, int]] = [
     ("PreToolUse", "Edit|Write|MultiEdit", "pre-edit-guard", 10),
     ("PostToolUse", "Read|Write|Edit|MultiEdit", "post-record", 10),
     ("PostToolUse", "Write|Edit|MultiEdit", "bloat-check", 10),
+    # Bash: замечаем совершённое `gh issue close` (второй источник сигнала о закрытии
+    # задачи — коммита такая команда не создаёт, и до 0.13.0 страж её не видел).
+    ("PostToolUse", "Bash", "issue-close-watch", 10),
     ("PreToolUse", "Agent", "agent-guard", 10),
     ("PostToolUse", "Agent", "agent-log", 10),
     ("PreCompact", "", "pre-compact", 10),
