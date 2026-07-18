@@ -45,7 +45,7 @@ def project_slug(path: str) -> str:
     """Слаг каталога проекта в `~/.claude/projects/<slug>` (правило Claude Code).
 
     Каждый символ вне [a-zA-Z0-9] → дефис. Проверено на трёх боевых проектах, включая
-    кириллицу: `/Users/v/Claude/Чеки/Projects/cheki_001` → `-Users-v-Claude------Projects-cheki-001`
+    кириллицу: `/Users/v/Claude/Тест/Projects/proj_001` → `-Users-v-Claude------Projects-proj-001`
     (каждая кириллическая буква даёт свой дефис, `_` тоже становится дефисом).
 
     ПРАВИЛО НЕ ЗАДОКУМЕНТИРОВАНО — результат обязателен к проверке на диске, см. модульный

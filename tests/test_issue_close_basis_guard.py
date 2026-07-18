@@ -9,7 +9,7 @@
   • пропуск засчитывается ТОЛЬКО при пустом stderr.
 Одного кода возврата недостаточно ни в ту, ни в другую сторону.
 
-Страж собран из двух живых хуков (ЧеКи и Lilya), у каждого из которых своё слепое
+Страж собран из двух живых хуков рабочих проектов, у каждого из которых своё слепое
 пятно; два случая ниже названы по источнику и держат именно эти дыры закрытыми.
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ def test_hook_is_present_and_executable() -> None:
     "cd /x && " + CLOSE,                        # не в начале строки
     "echo a\n" + CLOSE,                         # с новой строки
     "GH_TOKEN=x " + CLOSE,                      # префикс-присваивание
-    "wc -c f && " + CLOSE,                      # ← дыра ЧеКи: чужой -c сходил за основание
+    "wc -c f && " + CLOSE,                      # ← дыра первого источника: чужой -c сходил за основание
 ])
 def test_blocks_close_without_basis(cmd: str) -> None:
     assert _blocks(cmd)
@@ -62,7 +62,7 @@ def test_blocks_close_without_basis(cmd: str) -> None:
     CLOSE + ' --comment="довод"',
     CLOSE + ' && gh issue comment 5 --body "довод"',   # законный второй путь
     'echo "' + CLOSE + '"',                            # фраза, а не команда
-    'grep "foo; ' + CLOSE + '" file',                  # ← дыра Lilya: разделитель в кавычках
+    'grep "foo; ' + CLOSE + '" file',                  # ← дыра второго источника: разделитель в кавычках
     "gh issue list",
     "",
 ])

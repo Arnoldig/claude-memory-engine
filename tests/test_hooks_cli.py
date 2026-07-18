@@ -40,7 +40,7 @@ def test_applies_marker_stable_path_and_stores_lessons(cfg, tmp_path) -> None:
 
 def test_applies_gate_fires_on_project_code_inside_dot_claude(cfg, tmp_path) -> None:
     """`.claude/` больше не «служебный» скопом: проекты держат там НАСТОЯЩИЙ код (стражи
-    выкладки, хуки, вендоренная копия движка), и у ЧеКи есть урок, ПРЕДПИСЫВАЮЩИЙ
+    выкладки, хуки, вендоренная копия движка), и у рабочего проекта есть урок, ПРЕДПИСЫВАЮЩИЙ
     привязывать уроки к `.claude/memory_engine/…`. Прежний пропуск молча отменял явную
     привязку — 12 уроков в двух проектах не всплывали никогда."""
     write_lesson(cfg.memory_dir, "feedback_guard.md", description="про стража",

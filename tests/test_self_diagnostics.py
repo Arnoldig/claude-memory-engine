@@ -42,7 +42,7 @@ def test_self_check_flags_typo_key_but_not_new_key(cfg) -> None:
 
 
 def test_self_check_ignores_underscore_comment_keys(cfg) -> None:
-    # Живой конфиг проекта Лили держит заметку-комментарий `_task_close_pattern_note`.
+    # Живой конфиг рабочего проекта держит заметку-комментарий `_task_close_pattern_note`.
     # Она БЛИЗКА к `task_close_pattern` → без правила про ведущий `_` жалоба была бы
     # ложной на КАЖДОМ старте. Ложное срабатывание — то, от чего жалобы начинают
     # игнорировать, то есть лекарство хуже болезни.
@@ -361,8 +361,8 @@ def test_default_reads_documented_spellings(cfg, text: str, expected: str) -> No
     # Conventional Commits: `fix:` — ТИП коммита, `#слаг` — тема, а не закрываемая задача.
     # Боевые примеры из истории проекта-потребителя (619 тем с таким префиксом); ветка,
     # принимающая после двоеточия любой id, дала бы здесь 8 ложных блокировок Stop.
-    "fix: #chekidown-2026-05-10 — gitignore infra/prometheus/scrape_token*",
-    "fix: #tg-bot-egress-pin + #robokassa-test-password-pair (#39)",
+    "fix: #incident-2026-05-10 — gitignore infra/prometheus/scrape_token*",
+    "fix: #egress-pin + #payment-test-credentials (#39)",
     "fix: #cleanup-2026-05-04 — browser console hygiene",
     "auto-closes: #10",                    # дефис слева — не закрытие
     "prefixed-closes: #10",

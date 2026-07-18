@@ -37,18 +37,18 @@ def _settings(root: Path, scope: str, data: dict) -> None:
 # ── слаг ────────────────────────────────────────────────────────────────────────
 
 def test_project_slug_ascii() -> None:
-    assert E.project_slug("/Users/v/Claude/Lilya") == "-Users-v-Claude-Lilya"
+    assert E.project_slug("/Users/v/Claude/Website") == "-Users-v-Claude-Website"
 
 
 def test_project_slug_underscore_becomes_dash() -> None:
-    assert E.project_slug("/a/cheki_001") == "-a-cheki-001"
+    assert E.project_slug("/a/proj_001") == "-a-proj-001"
 
 
 def test_project_slug_cyrillic_one_dash_per_char() -> None:
     """Каждый символ вне [a-zA-Z0-9] даёт СВОЙ дефис — в т.ч. каждая кириллическая буква.
-    Закреплено по боевому пути: `/Чеки/` (6 символов) → 6 дефисов."""
-    assert E.project_slug("/Users/v/Claude/Чеки/Projects/cheki_001") == \
-        "-Users-v-Claude------Projects-cheki-001"
+    Закреплено по боевому пути с кириллицей: `/Тест/` (6 символов) → 6 дефисов."""
+    assert E.project_slug("/Users/v/Claude/Тест/Projects/proj_001") == \
+        "-Users-v-Claude------Projects-proj-001"
 
 
 # ── основной чекаут ─────────────────────────────────────────────────────────────
