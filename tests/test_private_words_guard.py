@@ -222,3 +222,40 @@ def test_patterns_work_without_word_list(tmp_path: Path) -> None:
     у внешнего участника проекта ключ не должен уехать в публичный комментарий."""
     (tmp_path / ".claude").mkdir()
     assert _blocks(_run(f'gh issue comment 8 --body "{"ghp_" + "q" * 36}"', tmp_path))
+
+
+@pytest.mark.parametrize("text", [
+    # Найдено замером на двух живых проектах: 57 и 129 ложных срабатываний соответственно.
+    # Страж, ругающийся на код и на файл блокировок, снимается за неделю вместе с пользой.
+    "@pytest.mark.skip(reason='x')",
+    "@router.patch('/api/v1/claims')",
+    "@app.get('/health')",
+    "https://registry.npmjs.org/@astrojs/compiler/-/compiler-0.3.1.tgz",
+    "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
+])
+def test_mail_pattern_ignores_decorators_and_package_urls(sandbox: Path, text: str) -> None:
+    assert not _blocks(_run(f'gh issue comment 8 --body "{text}"', sandbox))
+
+
+@pytest.mark.parametrize("text", [
+    "пиши на ivan.petrov@mail.ru",
+    "адрес a1@b2.рф в тексте",
+])
+def test_mail_pattern_still_catches_real_addresses(sandbox: Path, text: str) -> None:
+    """Отсев декораторов не имеет права ослабить главное — настоящий адрес."""
+    assert _blocks(_run(f'gh issue comment 8 --body "{text}"', sandbox))
+
+
+def test_project_allow_list_suppresses_known_safe_addresses(tmp_path: Path) -> None:
+    """У проекта с публичным контактным адресом страж без исключений ругался бы на каждый
+    документ, где этот адрес упомянут, — и был бы снят. Исключения проектные, поэтому
+    лежат рядом со списком слов и так же вне git."""
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "private-words.txt").write_text("несуществующееслово\n", encoding="utf-8")
+    cmd = 'gh issue comment 8 --body "пиши на hello@ourcompany.ru"'
+    assert _blocks(_run(cmd, tmp_path)), "без исключений адрес обязан ловиться"
+    (tmp_path / ".claude" / "private-words-allow.txt").write_text(
+        "# наши публичные адреса\nhello@ourcompany.ru\n", encoding="utf-8")
+    assert not _blocks(_run(cmd, tmp_path)), "с исключением — молчит"
+    # исключение не ослабляет остального
+    assert _blocks(_run('gh issue comment 8 --body "ivan@other.ru"', tmp_path))
