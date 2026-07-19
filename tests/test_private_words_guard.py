@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -259,3 +261,159 @@ def test_project_allow_list_suppresses_known_safe_addresses(tmp_path: Path) -> N
     assert not _blocks(_run(cmd, tmp_path)), "с исключением — молчит"
     # исключение не ослабляет остального
     assert _blocks(_run('gh issue comment 8 --body "ivan@other.ru"', tmp_path))
+
+
+# ── Дефекты, найденные замером ВРЕМЕНИ, а не чтением кода (заявка #15) ──────────
+# ОБЩИЙ КОНТЕКСТ, без которого эти тесты выглядят придиркой к скорости. ЗАМЕРЕНО:
+# превышение таймаута хука PreToolUse ПРОПУСКАЕТ вызов, а не блокирует его (контрольный
+# опыт: хук с кодом 2 вызов заблокировал; хук, спящий дольше таймаута, — вызов
+# выполнился, побочный эффект состоялся). Документация Claude Code об этом исходе не
+# говорит вовсе, поэтому здесь замер, а не ссылка.
+#
+# Следствие: любой способ ЗАМЕДЛИТЬ стража есть способ его ОБОЙТИ, причём молча — ни
+# блокировки, ни ошибки в журнале не остаётся. Отсюда правило набора: проверки стража
+# МЕРЯЮТ ВРЕМЯ, а не только исход, и на входах в десятки килобайт. Прежние тесты все
+# четыре дефекта пропускали, потому что на коротком входе поведение было правильным.
+#
+# Превентивные блоки проверяются НАПРЯМУЮ (код 2 + свой текст), а не через `_blocks`:
+# у того в тексте зашита формулировка про приватный список, а здесь исход другой —
+# «проверить не удалось», и смешивать их значило бы сказать человеку неправду.
+
+def _timed(command: str, project_dir: Path, extra_env: dict = None) -> tuple:
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project_dir), **(extra_env or {}))
+    started = time.monotonic()
+    p = subprocess.run(["bash", str(HOOK)], input=payload, capture_output=True,
+                       text=True, env=env, timeout=60)
+    return p, time.monotonic() - started
+
+
+def test_long_single_line_body_does_not_stall_the_guard(sandbox: Path) -> None:
+    """Квадратичный откат в образце адреса почты = обход стража.
+
+    Замер до починки: 5 КБ — 0,15 с, 20 КБ — 2,31 с, 40 КБ — 9,25 с (вчетверо на каждое
+    удвоение). Подушка набирается БЕЗ злого умысла: список идентификаторов через запятую
+    или JSON в одну строку. Перенос строки откат рвёт, поэтому страж отказывал выборочно
+    и незаметно. Порог 3 с различает старое поведение и новое с большим запасом."""
+    pad = "a-" * 20480                        # 40 КБ одной строкой, ни одного `@`
+    p, secs = _timed(f'gh issue create --title x --body "{SECRET} {pad}"', sandbox)
+    assert p.returncode == 2 and p.stderr.strip(), "приватное слово обязано ловиться"
+    assert secs < 3, f"разбор занял {secs:.1f} с — на живом таймауте это молчаливый обход"
+
+
+def test_clean_long_body_is_fast_too(sandbox: Path) -> None:
+    """Тот же замер на ЧИСТОМ тексте: страж обязан не только блокировать быстро, но и
+    ПРОПУСКАТЬ быстро — иначе он мешает работе на каждом длинном сообщении."""
+    p, secs = _timed(f'gh issue create --title x --body "{"a-" * 20480}"', sandbox)
+    assert p.returncode == 0 and not p.stderr.strip()
+    assert secs < 3, f"пропуск занял {secs:.1f} с"
+
+
+def test_body_file_that_is_not_a_regular_file_blocks(sandbox: Path, tmp_path: Path) -> None:
+    """Именованный канал как файл тела: `open()` висел бы вечно, и хук умирал бы по
+    таймауту — то есть команда уходила бы непроверенной (замер: не завершился за 12 с).
+    Тип проверяется ДО открытия, поэтому исход мгновенный и БЛОКИРУЮЩИЙ: содержимое не
+    прочли → не знаем, есть ли там запретное."""
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    p, secs = _timed(f"gh issue create --title x --body-file {fifo}", sandbox)
+    assert p.returncode == 2, "непрочитанный файл тела обязан блокировать, а не пропускаться"
+    assert "проверить не удалось" in p.stderr
+    assert secs < 5, f"страж завис на {secs:.1f} с — это и есть обход по таймауту"
+
+
+def test_oversized_body_file_blocks(sandbox: Path, tmp_path: Path) -> None:
+    big = tmp_path / "big.md"
+    big.write_text("a" * (1024 * 1024 + 10), encoding="utf-8")
+    p, _ = _timed(f"gh issue create --title x --body-file {big}", sandbox)
+    assert p.returncode == 2 and "проверить не удалось" in p.stderr
+
+
+def test_missing_body_file_still_passes_through(sandbox: Path, tmp_path: Path) -> None:
+    """ТЕСТ НА ПРОПУСК. Несуществующий файл — не наша забота, пусть решает `gh`: он и сам
+    упадёт, публикации не будет. Превентивная блокировка здесь была бы шумом."""
+    p = _run(f"gh issue create --title x --body-file {tmp_path / 'нет-такого.md'}", sandbox)
+    assert p.returncode == 0 and not p.stderr.strip()
+
+
+def test_non_utf8_word_list_does_not_disable_the_guard(tmp_path: Path) -> None:
+    """Один байт не в UTF-8 в списке слов отключал стража ЦЕЛИКОМ.
+
+    Список правят руками, и одна вставка из cp1251 роняла процесс UnicodeDecodeError ещё
+    ДО образцов ключей — переставало работать и то, что от списка вообще не зависит.
+    Замер до починки: код 1 и traceback вместо кода 2, токен НЕ заблокирован. Код 1
+    блокировкой не является, поэтому со стороны это выглядело как обычная работа:
+    защиты нет, но и внятной жалобы тоже."""
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "private-words.txt").write_bytes(
+        "вымышленноеслово\n".encode("cp1251"))
+    p = _run(f'gh issue create --title x --body "ghp_{"A" * 40}"', tmp_path)
+    assert p.returncode == 2, f"страж умер вместо блокировки: код={p.returncode}"
+    assert "приватного списка" in p.stderr
+
+
+def test_non_utf8_allow_list_does_not_disable_the_guard(sandbox: Path) -> None:
+    """Тот же дефект во ВТОРОМ чтении файла — асимметрию легко пропустить глазами."""
+    (sandbox / ".claude" / "private-words-allow.txt").write_bytes(
+        "почта@пример.рф\n".encode("cp1251"))
+    assert _blocks(_run(f'gh issue comment 8 --body "{SECRET}"', sandbox))
+
+
+@pytest.mark.parametrize("flag", ["-F", "--input", "--file", "--body-file", "--notes-file"])
+def test_file_flag_forms_are_all_inspected(sandbox: Path, tmp_path: Path, flag: str) -> None:
+    """Короткие формы флага не досматривались — обход одной буквой.
+
+    Шапка файла заявляет, что закрыт «тот путь, которым удобнее всего отправить длинный
+    текст». Короткая форма ровно так же удобна, а `--input` при этом УЖЕ числился каналом
+    публикации в самом же PUBLISH: канал признан публикующим, но содержимое не читалось.
+    Замер до починки: `-F`, `--input`, `--file` давали код 0."""
+    dirty = tmp_path / "dirty.md"
+    dirty.write_text(f"текст с {SECRET} внутри\n", encoding="utf-8")
+    assert _blocks(_run(f"gh issue create --title x {flag} {dirty}", sandbox))
+
+
+def test_key_at_file_form_is_inspected(sandbox: Path, tmp_path: Path) -> None:
+    """Форма `-F key=@file`: путь лежит после `=@`, а не сразу за флагом."""
+    dirty = tmp_path / "dirty.md"
+    dirty.write_text(f"текст с {SECRET} внутри\n", encoding="utf-8")
+    assert _blocks(_run(f"gh api repos/o/r/issues -X POST -F body=@{dirty}", sandbox))
+
+
+def test_inline_key_value_form_is_not_treated_as_a_path(sandbox: Path) -> None:
+    """ТЕСТ НА ПРОПУСК. `-F key=value` без `@` — значение инлайновое, файла нет.
+    Оно уже внутри команды, значит уже проверено; выдумывать здесь файл незачем."""
+    p = _run("gh api repos/o/r/issues -X POST -F title=обычныйтекст", sandbox)
+    assert p.returncode == 0 and not p.stderr.strip()
+
+
+def test_watchdog_blocks_when_scan_exceeds_deadline(sandbox: Path) -> None:
+    """Сторожевой таймер: не уложились в срок → БЛОКИРОВКА, а не пропуск.
+
+    Единственное отступление от fail-open, и оно осознанное: исход обязан быть выбором
+    СТРАЖА, а не среды. Проверяется через тестовую закладку — после ограничения образца
+    почты сверху реалистичным входом стража уже не замедлить (40 КБ — 0,08 с), а
+    непроверенный таймер выглядит точно так же, как работающий, пока не случится
+    настоящий откат."""
+    p, secs = _timed('gh issue create --title x --body "безобидный текст"', sandbox,
+                     {"PRIVATE_WORDS_GUARD_TEST_SLOW": "4",
+                      "PRIVATE_WORDS_GUARD_DEADLINE": "1"})
+    assert p.returncode == 2, "таймер не сработал — на живом таймауте это молчаливый обход"
+    assert "за отведённое время" in p.stderr
+    assert secs < 3, f"таймер сработал только к {secs:.1f} с — позже хук убьёт среда"
+
+
+def test_watchdog_does_not_fire_on_normal_input(sandbox: Path) -> None:
+    """ТЕСТ НА ПРОПУСК для таймера: ложно блокирующего стража снимают целиком вместе
+    с пользой, поэтому «не срабатывает, когда не должен» проверяется отдельно."""
+    p, _ = _timed('gh issue create --title x --body "безобидный текст"', sandbox,
+                  {"PRIVATE_WORDS_GUARD_TEST_SLOW": "0.2"})
+    assert p.returncode == 0 and not p.stderr.strip()
+
+
+def test_deadline_default_is_below_consumer_hook_timeout() -> None:
+    """ИНВАРИАНТ, без которого таймер бесполезен: собственный дедлайн обязан быть строго
+    меньше таймаута хука у потребителей (10 с). Иначе исход снова определяет среда —
+    то есть пропуск, ровно то, что здесь чинится."""
+    m = re.search(r'PRIVATE_WORDS_GUARD_DEADLINE", "(\d+)"', HOOK.read_text(encoding="utf-8"))
+    assert m, "дедлайн по умолчанию не найден — таймер могли выключить незаметно"
+    assert 0 < int(m.group(1)) < 10, f"дедлайн {m.group(1)} с не меньше таймаута хука"
