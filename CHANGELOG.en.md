@@ -43,7 +43,7 @@ Notable changes to this project are listed here. The format follows [Keep a Chan
   7. **One non-2 exit remained after a publication was recognised:** a path containing a NUL byte raises `ValueError` from `os.stat`, not `OSError`. Hard to reach, but the header's invariant may not have loopholes — they are never found one at a time.
 
   All seven are pinned by tests and confirmed by measurement against the earlier versions. Lesson for the suite: tests for the new behaviour are not enough — a measurement against what came before is also required, or a regression INSIDE a fix looks like success. And separately: a green test is worth exactly as much as the proof that it goes red on broken code.
-- +27 tests (626 vs 599).
+- +43 tests (642 vs 599).
 
 ## [0.15.0] — 2026-07-18
 

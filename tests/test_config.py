@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from claude_memory import config as C
 
 
@@ -121,3 +123,56 @@ def test_normalization_drops_values_that_become_empty(tmp_path: Path) -> None:
     assert cfg.retrieve_extensions == ("py",)
     assert cfg.watched_dirs == ("app",)
     assert cfg.lesson_prefixes == ("feedback",)
+
+
+# ── Все стражи ВКЛЮЧЕНЫ по умолчанию ────────────────────────────────────────────
+
+GUARD_FLAGS = (
+    "stop_lessons_enabled",       # напоминание записать урок после свежего коммита
+    "task_close_lesson_gate",     # урок при закрытии задачи коммитом
+    "task_close_command_watch",   # то же для закрытия задачи командой
+    "stale_reconcile_gate",       # чек-лист итогов памяти на фразу закрытия сессии
+    "llm_actuality_enabled",      # актуальность линейки моделей
+    "retrieve_cache_enabled",     # кэш подсказок по урокам
+)
+
+GUARD_THRESHOLDS = (
+    "lesson_count_warn",          # подсказка проверить дубли уроков
+    "archive_stale_months",       # срок хранения архива
+    "precedent_count_warn",       # накопление живых прецедентов
+    "model_registry_max_age_days",
+    "llm_actuality_interval_hours",
+    "core_budget_bytes",          # бюджет горячего ядра
+    "feedback_warn_bytes",        # предупреждение о крупном уроке
+    "marker_limit",               # формат session-маркера
+    "stop_commit_age_limit_seconds",
+    "task_close_marker_ttl_seconds",
+)
+
+
+def _defaults() -> "C.MemoryConfig":
+    """Дефолты как их видит проект без своего конфига: пути обязательны,
+    но на значения стражей не влияют."""
+    return C.MemoryConfig(memory_dir="/m", project_root="/p")
+
+
+@pytest.mark.parametrize("flag", GUARD_FLAGS)
+def test_every_guard_is_enabled_by_default(flag: str) -> None:
+    """Страж, выключенный по умолчанию, бессмыслен: его просто не включат.
+
+    Движок нужен ровно там, где человек НЕ следит за памятью вручную; настройка, которую
+    надо сперва найти и включить, до такого человека не доходит. Умолчание — это и есть
+    поведение продукта.
+
+    Замок стоит на УМОЛЧАНИИ, а не на конфиге проекта: проект вправе выключить что-то
+    осознанно, а вот тихо уехавший в `False` дефолт снял бы стража у ВСЕХ и ничем себя
+    не выдал — тот же класс, что мёртвый страж, выглядящий рабочим."""
+    assert getattr(_defaults(), flag) is True, f"{flag} выключен по умолчанию"
+
+
+@pytest.mark.parametrize("field", GUARD_THRESHOLDS)
+def test_no_guard_threshold_defaults_to_disabled(field: str) -> None:
+    """У числовых стражей выключением служит `0` — значит ноль в ДЕФОЛТЕ это тоже
+    выключенный страж, только незаметнее логического флага."""
+    value = getattr(_defaults(), field)
+    assert value > 0, f"{field}={value} — страж выключен по умолчанию"

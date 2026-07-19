@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 626](https://img.shields.io/badge/tests-626-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 642](https://img.shields.io/badge/tests-642-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -98,7 +98,7 @@ The lessons in the example are made up for illustration. The labels are English 
 **Safety rails**
 - If two sessions edit the same memory file, the second one gets a gentle "re-read and retry" instead of silently losing edits.
 - At the end of work the engine gently reminds you to record a lesson if none has been written after a fresh commit (especially when the commit closes a task).
-- To re-verify lessons for staleness, write a close phrase at the end of a session (e.g. "Туши свет" or "Done"): the engine replies with a session memory checklist — which lessons surfaced during edits but were not updated, related-by-meaning lessons, and which guards are on. Write this phrase at the end of every session: it is what triggers the check (if you forget, the engine records the debt and reminds you at the next session start). This keeps the memory in sync with the code.
+- At the end of a session write a close phrase (e.g. "Туши свет" or "Done") — the engine shows the memory summary: what is worth re-reading and what has gone stale. Forget to write it and it reminds you at the next start.
 - It prevents accidentally launching a helper sub-agent on the most expensive model and keeps a log of such launches.
 - It warns if the session model is unknown, and once a day asks you to re-verify the model lineup (any new/deactivated models) — the result lands in the close checklist.
 - It checks the settings at startup and catches typos before they break anything. Separately, it warns if the engine is looking at a different folder than the one Claude Code writes lessons to — otherwise that looks like "all good, just no lessons yet".
@@ -110,27 +110,29 @@ The lessons in the example are made up for illustration. The labels are English 
 
 ## Memory guards
 
-The engine ships several "guards" — small automatic checks. They fire at different moments, and what is on or off is always visible in the session summary checklist.
+"Guards" are small automatic checks. They remind you of the things that are easy to forget, and they fire at different moments of your work. What is currently on or off is always visible in the session summary checklist.
 
-**Stale lessons.** When you write a session-close phrase (`session_close_pattern`), the engine shows a session memory checklist: which lessons surfaced during edits and were not updated (in case your change made them false), related-by-meaning lessons, shelf-life status, and the list of enabled/disabled guards. Triggered by the close phrase. On by default.
+**Every guard is on by default** — a guard nobody turns on is no guard at all. How to switch each one off is stated at the end of its entry; see [Configuration](#configuration) for details.
 
-**Record lessons.** At the end of a turn, if no lesson has been written after a fresh commit, the engine gently reminds you to capture the outcome. Triggered by a commit, checked at turn end. On.
+**Memory summary.** You write a session-close phrase, and the engine shows a summary: which lessons are worth re-reading, what is related by meaning, what is nearing its shelf life. Off switch: `stale_reconcile_gate: false`.
 
-**Task close.** At the end of a turn, if a commit closes a task (`Closes #N`) but no lesson for it exists, the engine asks you to write one. This is a separate guard from "stale lessons", with its own trigger — a commit, not the phrase. Honestly, this path has a blind spot: it only ever sees the text of the LAST commit, and the `gh issue close` command creates no commit at all — once a project's tracker moves to GitHub Issues, the guard stays quiet on exactly those closures. So there is a second source for the same signal: a Bash hook notices the `gh issue close` command itself and drops a marker in memory, and the same guard reads that marker at Stop and asks for a lesson just as it would for a commit. On by default (`task_close_command_watch`); the marker expires after `task_close_marker_ttl_seconds` seconds (4 hours by default).
+**Record lessons.** If a lesson still has not been written after a fresh commit, the engine reminds you at the end of the turn to capture the outcome. Off switch: `stop_lessons_enabled: false`.
 
-**Archive retention.** At session end the engine flags archived lessons older than six months and shows them at the next start as review candidates. The memory never deletes anything itself — that is your call. On (6 months); `0` disables.
+**Task close.** If a task has been closed but no lesson about it exists in memory, the engine asks you to write one. It notices both ways of closing — a phrase in a commit and a command in the terminal. Off switch: `task_close_lesson_gate: false`.
 
-**Lesson count.** When the number of lessons exceeds a threshold, a hint to check for exact duplicates appears at startup (not to "merge" — that loses detail). On, threshold `500`; `0` disables.
+**Archive retention.** Archived lessons older than six months are flagged and shown at the next start as review candidates. The engine never deletes anything itself — that is your call. Off switch: `archive_stale_months: 0`.
 
-**Model lineup actuality.** Combines two checks. Reactively: at startup it warns if the session model is not in the confirmed family list (default `opus`, `sonnet`, `haiku`, `fable`). Daily: once a day it asks the assistant to verify the lineup — any new or deactivated models (the check can be delegated to the cheapest model with web search) — and record the result via `cme_hook.sh llm-verified` / `llm-changes`. The result is kept in a state file and shown as a line in the close checklist. On by default (`llm_actuality_enabled`; cadence `llm_actuality_interval_hours`, 24h).
+**Lesson count.** Once lessons pass a threshold, a startup hint suggests checking for duplicates among them. Off switch: `lesson_count_warn: 0`.
+
+**Model lineup actuality.** Warns if the session model is unfamiliar, and once a day asks you to check whether new models have appeared. Off switch: `llm_actuality_enabled: false`.
 
 **Parallel sessions.** If another session changed a memory file you are about to edit, the engine asks you to re-read it so edits do not overwrite each other. Always on.
 
-**File size and marker format.** The engine warns when the "hot core" or a lesson exceeds its budget, and refuses to write a malformed session marker. On.
+**File size.** Warns when a memory file grows too large, and refuses to write a service marker in the wrong format. Always on.
 
-**Expensive sub-agent model.** Once per session it warns if a helper sub-agent is launched on the strongest (expensive) model or without an explicit model choice. On.
+**Expensive sub-agent model.** Once per session, warns if a helper sub-agent is launched on the most powerful and expensive model. Always on.
 
-**Config self-check.** At every startup it catches settings errors that break things silently: typos in message overrides and in key names, broken regex patterns, non-ISO dates, a task-close pattern (`task_close_pattern`) that has fallen behind the engine's default, and any divergence from Claude Code's own settings — the engine looking at a different folder than the one auto-memory writes to, or auto-memory being off so nobody can write lessons at all. A lagging pattern isn't the same as a broken one: it compiles and runs fine, it just silently fails to recognize some of GitHub's documented closing forms. A form has two coordinates: the KEYWORD (for example the `resolve/resolves/resolved` family, added in 0.10.0 after the project's copy had already been split off from the default) and the SPELLING (`Closes #42` and `Closes: #42` — GitHub accepts both, the engine learned the second one in 0.15.0). The check stays quiet on a deliberate full replacement for another issue tracker (a pattern that recognizes none of the forms). The last one (Claude Code divergence) matters most: from the outside it looks like "all good, just no lessons yet". On.
+**Config self-check.** At every startup it looks for settings errors that break things invisibly: typos, broken patterns, malformed dates. It separately checks the one that matters most — whether the engine reads the same folder that Claude Code's memory writes to. When those diverge, everything looks fine from the outside; there are simply no lessons. Always on.
 
 ## Module map
 
