@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 680](https://img.shields.io/badge/tests-680-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 682](https://img.shields.io/badge/tests-682-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -385,11 +385,14 @@ This section is for those who modify the engine's code: the tests verify that ev
 The tests need no network, external database, or Docker: only the Python standard library (200+ tests). Run them like this:
 
 ```
-pip install pytest
+pip install pytest ruff
+python3 -m ruff check .
 python3 -m pytest
 ```
 
-The first command installs `pytest` (the test runner), the second runs the whole suite and shows that everything is green.
+The first command installs two tools: `pytest` runs the tests, `ruff` checks the code. The second looks for the mistakes that leave part of the code not working while everything still looks fine: a typo in a name, a forgotten import, an unreachable branch. The third runs the whole suite and shows that everything is green. GitHub does the same on every push.
+
+The code check deliberately says nothing about formatting — not line length, not import order, not quote style. Those remarks get muted quickly, and genuine findings get muted along with them.
 
 ### Releasing a new version
 

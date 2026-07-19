@@ -9,7 +9,8 @@ Thanks for your interest! Questions, bug reports, and ideas are welcome via the 
 ```
 git clone https://github.com/Arnoldig/claude-memory-engine.git
 cd claude-memory-engine
-pip install pytest
+pip install pytest ruff
+python3 -m ruff check .
 python3 -m pytest
 ```
 

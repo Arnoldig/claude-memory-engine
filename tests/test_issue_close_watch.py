@@ -103,7 +103,6 @@ def test_detect_is_linear_on_a_long_slashy_argument() -> None:
     """Квадратичный разбор здесь не косметика: хук убивают по таймауту (10 с), а убитый
     хук теряет НАСТОЯЩЕЕ закрытие молча — рецидив чинимого дефекта. Замер до правки:
     40 КБ → 3.9 с."""
-    import time
     command = "gh issue close $ISSUE --comment " + ("/a" * 40000)
     started = time.perf_counter()
     W.detect_close(command)

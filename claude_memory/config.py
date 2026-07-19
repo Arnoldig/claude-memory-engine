@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 # Нейтральная таксономия тем по умолчанию: (слаг topic: , человеко-читаемый заголовок).
 # Порядок здесь = порядок разделов в указателе CATALOG.

@@ -4,7 +4,7 @@
 
 Долговременная автообновляемая память «уроков» для Claude Code: нужный урок показывается сам, когда он пригодится. Подбор подходящих уроков ведёт обычный код, а не ИИ, поэтому работает быстро, офлайн и без сторонних зависимостей.
 
-![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 680](https://img.shields.io/badge/tests-680-brightgreen)
+![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 682](https://img.shields.io/badge/tests-682-brightgreen)
 
 **Русский** · [English](README.en.md)
 
@@ -384,11 +384,14 @@ $EDITOR .claude/claude-memory.config.json
 Тесты не требуют сети, внешней базы данных или Docker: только стандартная библиотека Python (их более 200). Запустить так:
 
 ```
-pip install pytest
+pip install pytest ruff
+python3 -m ruff check .
 python3 -m pytest
 ```
 
-Первая команда устанавливает `pytest` (программу, которая прогоняет тесты), вторая запускает весь набор и показывает, что всё «зелёное».
+Первая команда устанавливает две программы: `pytest` прогоняет тесты, `ruff` проверяет код. Вторая ищет ошибки, из-за которых часть кода не работает, хотя внешне всё выглядит нормально: опечатка в имени, забытый импорт, недостижимая ветка. Третья запускает весь набор тестов и показывает, что всё «зелёное». То же самое делает GitHub при каждой отправке изменений.
+
+Проверка кода намеренно не придирается к оформлению — ни к длине строк, ни к порядку импортов, ни к кавычкам. Такие замечания быстро учатся заглушать, а вместе с ними глушат и настоящие находки.
 
 ### Релиз новой версии
 
