@@ -227,6 +227,122 @@ def _git_commit(repo: Path, msg: str) -> None:
     subprocess.run(["git", "commit", "-qm", msg], cwd=repo, check=True, env=env)
 
 
+# ── extract_closed_tasks: ВСЕ закрытия коммита, а не первое (заявка #15) ────────
+# Прежний `extract_closed_task` на `re.search` брал первое совпадение и остальные терял
+# МОЛЧА. Замер по живой истории потребителя: 3 коммита из 144 с >1 совпадением, в двух
+# терялась настоящая задача. Молчание было неотличимо от «закрытий не было».
+
+def test_extract_closed_tasks_multiple_on_one_line(cfg) -> None:
+    p = cfg.task_close_pattern
+    assert SC.extract_closed_tasks("Closes #1, also Closes #2", p) == ["1", "2"]
+
+
+def test_extract_closed_tasks_multiple_on_separate_lines(cfg) -> None:
+    p = cfg.task_close_pattern
+    assert SC.extract_closed_tasks("Closes #alpha\nCloses #beta", p) == ["alpha", "beta"]
+
+
+def test_extract_closed_tasks_dedupes_preserving_order(cfg) -> None:
+    # Один id, записанный дважды в разных формах, — это ОДНО закрытие, не два.
+    # Замер по живой истории: таких коммитов 8 из 10 многосовпадальных, и требовать
+    # по ним урок дважды значило бы шуметь на ровном месте.
+    p = RU_EN_CLOSE_PATTERN
+    assert SC.extract_closed_tasks("#task-7 закрыт\n\nCloses #task-7", p) == ["task-7"]
+
+
+def test_extract_closed_tasks_shadowed_real_closure_survives(cfg) -> None:
+    """ГЛАВНЫЙ сценарий заявки #15: проза о ФОРМЕ закрытия выше НАСТОЯЩЕГО закрытия.
+
+    Порядок самый естественный — конвенция обоих потребителей кладёт закрывающую фразу
+    в КОНЕЦ сообщения, а рассказ о правке в тело выше. Раньше извлекался фантом `123`,
+    а настоящая задача терялась: ложное срабатывание порождало ложный ПРОПУСК."""
+    p = RU_EN_CLOSE_PATTERN
+    text = ("Сверка показала, что шаблон расширен формами Closes: #123 и resolved.\n\n"
+            "#tema-zaslona закрыт (issue #77)")
+    got = SC.extract_closed_tasks(text, p)
+    assert "tema-zaslona" in got, "настоящее закрытие потеряно — тот самый баг"
+    assert got[0] == "123", "контракт надмножества: первый элемент = прежнее поведение"
+
+
+def test_extract_closed_tasks_is_superset_of_singular(cfg) -> None:
+    """КОНТРАКТ НАДМНОЖЕСТВА: ничего ловящегося сегодня не потеряется.
+
+    Свойство проверяется на батарее входов из соседних тестов, а не на одном: именно
+    оно разрешает переключить `closure_reminder` без риска регресса."""
+    for p in (cfg.task_close_pattern, RU_EN_CLOSE_PATTERN):
+        for text in ("fix: Closes #58", "docs: Fixes #memory-lib-cutover",
+                     "just a normal commit", "рефакторинг (#5)", "prefixed-closes #10",
+                     "#task-7 закрыта", "fix(config): описка\n\nResolves #7",
+                     "Closes #1, also Closes #2", ""):
+            one = SC.extract_closed_task(text, p)
+            many = SC.extract_closed_tasks(text, p)
+            if one is None:
+                assert many == [], f"одиночная молчит, множественная нет: {text!r}"
+            else:
+                assert many and many[0] == one, f"расхождение на {text!r}"
+
+
+def test_extract_closed_tasks_degenerate_inputs(cfg) -> None:
+    p = cfg.task_close_pattern
+    assert SC.extract_closed_tasks("", p) == []
+    assert SC.extract_closed_tasks("Closes #9", "((((") == []          # битый шаблон
+    assert SC.extract_closed_tasks("Closes #9", r"closes #[\w-]+") == []  # шаблон без групп
+
+
+def test_extract_closed_tasks_capped(cfg) -> None:
+    # Потолок про читаемость блок-текста, не про безопасность: полотно из тридцати
+    # номеров человек не прочтёт, а прочесть он обязан — иначе блок бесполезен.
+    p = cfg.task_close_pattern
+    text = " ".join(f"Closes #{i}" for i in range(50))
+    assert len(SC.extract_closed_tasks(text, p)) == SC.MAX_CLOSED_TASKS
+
+
+def test_closure_reminder_blocks_on_second_closure(cfg, tmp_path) -> None:
+    """Урок есть про ПЕРВОЕ закрытие, но не про второе → всё равно блок, и в тексте второе.
+
+    Раньше здесь был молчаливый None: гейт видел только первый id, находил про него урок
+    и успокаивался. Именно так терялись `ttl-session-key-deny` и `#90` в живой истории."""
+    repo = tmp_path / "repo"; repo.mkdir()
+    _git_commit(repo, "docs: Closes #task-9 и Closes #task-10")
+    write_lesson(cfg.memory_dir, "feedback_done.md", description="урок про #task-9")
+    msg = SC.closure_reminder(cfg, str(repo))
+    assert msg, "второе закрытие потеряно — гейт промолчал"
+    assert "task-10" in msg
+    assert "task-9" not in msg, "про #task-9 урок есть — требовать его повторно незачем"
+
+
+def test_closure_reminder_lists_all_missing(cfg, tmp_path) -> None:
+    repo = tmp_path / "repo"; repo.mkdir()
+    _git_commit(repo, "docs: Closes #task-9 и Closes #task-10")
+    msg = SC.closure_reminder(cfg, str(repo))
+    assert msg and "task-9" in msg and "task-10" in msg
+
+
+def test_closure_reminder_passes_when_all_lessons_exist(cfg, tmp_path) -> None:
+    """ТЕСТ НА ПРОПУСК — обязательный. Набор из одних блокирующих случаев проходит
+    зелёным даже на полностью сломанном страже, поэтому «не блокирует, когда не должен»
+    проверяется отдельно (урок «мёртвый страж выглядит как блокирующий»)."""
+    repo = tmp_path / "repo"; repo.mkdir()
+    _git_commit(repo, "docs: Closes #task-9 и Closes #task-10")
+    write_lesson(cfg.memory_dir, "feedback_a.md", description="урок про #task-9")
+    write_lesson(cfg.memory_dir, "feedback_b.md", description="урок про #task-10")
+    assert SC.closure_reminder(cfg, str(repo)) is None
+
+
+def test_closure_reminder_shadow_no_longer_silences_real_task(cfg, tmp_path) -> None:
+    """Сквозной сценарий тени на уровне гейта, а не экстрактора.
+
+    Про фантом `#123` урок «есть» (он упомянут в чужом уроке), про настоящую задачу —
+    нет. Раньше гейт видел только фантом, находил упоминание и МОЛЧАЛ."""
+    cfg2 = replace(cfg, task_close_pattern=RU_EN_CLOSE_PATTERN)
+    repo = tmp_path / "repo"; repo.mkdir()
+    _git_commit(repo, "Сверка: шаблон расширен формами Closes: #123 и resolved.\n\n"
+                      "#tema-zaslona закрыт")
+    write_lesson(cfg.memory_dir, "feedback_x.md", description="упоминание #123 в другом уроке")
+    msg = SC.closure_reminder(cfg2, str(repo))
+    assert msg and "tema-zaslona" in msg, "настоящая задача снова потеряна за фантомом"
+
+
 def test_closure_reminder_blocks_when_no_lesson(cfg, tmp_path) -> None:
     repo = tmp_path / "repo"; repo.mkdir()
     _git_commit(repo, "docs: Closes #task-9")

@@ -15,7 +15,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from .config import MemoryConfig, get_config
 from .lesson_files import lesson_paths
@@ -143,6 +143,15 @@ def should_remind(cfg: Optional[MemoryConfig], cwd: str, now_ts: float) -> Optio
 
 # ── Привратник закрытия задачи (Closes #N без записанного урока про задачу) ──────
 
+def _first_nonempty_group(m: "re.Match") -> Optional[str]:
+    """Первая непустая capture-группа совпадения, или None (шаблон без групп).
+
+    Правило вынесено, потому что его применяют ДВЕ функции — `extract_closed_task`
+    (одно совпадение) и `extract_closed_tasks` (все). Две копии разошлись бы молча:
+    ровно тот класс, что чинит заявка #8 про отставшую копию эталона."""
+    return next((g for g in m.groups() if g), None)
+
+
 def extract_closed_task(commit_msg: str, pattern: str) -> Optional[str]:
     """Номер закрываемой задачи из коммита по шаблону, или None.
 
@@ -161,7 +170,54 @@ def extract_closed_task(commit_msg: str, pattern: str) -> Optional[str]:
         return None
     if not m:
         return None
-    return next((g for g in m.groups() if g), None)
+    return _first_nonempty_group(m)
+
+
+# Потолок числа id из одного коммита. Не про безопасность, а про читаемость блок-текста:
+# коммит, «закрывающий» три десятка задач, почти наверняка проза с примерами форм, и
+# полотно из тридцати номеров человек не прочтёт — а прочесть его он ОБЯЗАН, иначе блок
+# бесполезен. Срез виден в тексте (см. `closure_reminder`), молча не теряем ничего.
+MAX_CLOSED_TASKS = 10
+
+
+def extract_closed_tasks(commit_msg: str, pattern: str) -> List[str]:
+    """ВСЕ номера закрываемых задач из коммита по шаблону, по порядку, без повторов.
+
+    Зачем рядом с `extract_closed_task`, а не вместо неё. Старая построена на
+    `re.search` — берёт ПЕРВОЕ совпадение, и остальные закрытия теряет МОЛЧА. Замер по
+    живой истории проекта-потребителя: из 144 коммитов три содержат больше одного
+    совпадения, и в двух из них терялась настоящая задача — урок по ней не потребовали,
+    а молчание было неотличимо от «закрытий не было». Это дословно общий знаменатель
+    прецедентов движка (заявка #15).
+
+    ПОЧЕМУ СТАРАЯ ФУНКЦИЯ ОСТАЁТСЯ И НЕ МЕНЯЕТ ТИП ВОЗВРАТА. На её возврате-СТРОКЕ
+    держится страж отставания шаблона: `self_check.close_pattern_lag_issues` сравнивает
+    результат со строкой (`!= "42"`). Список не равен ей никогда → все зонды стали бы
+    «не узнаны» → сработала бы ветка «ноль форм = законная полная замена», и страж молча
+    умер бы. Второе: `task_lesson_recorded` подставляет результат в `re.escape`, а список
+    там даёт TypeError, который широкий `except` диспетчера (hooks_cli) погасил бы вместе
+    со ВСЕМ Stop-гейтом — на каждом закрывающем коммите. Отсюда правило: новая функция
+    РЯДОМ, старая неприкосновенна.
+
+    КОНТРАКТ НАДМНОЖЕСТВА: первый элемент результата всегда равен `extract_closed_task`
+    на тех же входах (то же первое совпадение, то же правило первой непустой группы),
+    либо оба пусты. Значит ничего, что ловится сегодня, потеряться не может — свойство
+    закреплено тестом.
+
+    ЦЕНА, НАЗВАННАЯ ВСЛУХ: проза о формах закрытия («шаблон расширен формой `Closes: #123`»)
+    теперь даёт id НАРЯДУ с настоящим закрытием, а не ВМЕСТО него. Это не хуже прежнего:
+    сегодня такая проза настоящее закрытие ЗАТЕНЯЕТ. Отличать цитату от действия здесь
+    намеренно НЕ пытаемся — тела коммитов у потребителей русская проза с примерами, и
+    любой «скелет» съел бы настоящие закрытия (прецедент: самотест 114/114 при четырёх
+    живых дырах, правку откатили целиком). Лишний id гасится упоминанием в уроке."""
+    if not commit_msg:
+        return []
+    try:
+        matches = list(re.finditer(pattern, commit_msg))
+    except re.error:
+        return []
+    ids = [g for g in (_first_nonempty_group(m) for m in matches) if g]
+    return list(dict.fromkeys(ids))[:MAX_CLOSED_TASKS]
 
 
 def task_lesson_recorded(cfg: MemoryConfig, task_id: str) -> bool:
@@ -197,13 +253,20 @@ def closure_reminder(cfg: Optional[MemoryConfig], cwd: str) -> Optional[str]:
     дырой размером с весь трекер.
     Второй источник сигнала (перехват самой команды `gh issue close`) живёт отдельно —
     `issue_close_watch`, с 0.13.0; расширять ШАБЛОН для этого бессмысленно, он верен.
-    Правя эту функцию, помните: она отвечает за коммит-путь и только за него."""
+    Правя эту функцию, помните: она отвечает за коммит-путь и только за него.
+
+    С 0.16.0 берёт ВСЕ закрытия коммита (`extract_closed_tasks`), а не первое. Прежде
+    гейт узнавал максимум одно закрытие на коммит и остальные терял МОЛЧА — потерянное
+    закрытие это урок, которого не потребовали, то есть ровно то, ради чего гейт заведён.
+    Блокируем, если урока нет ХОТЯ БЫ ПО ОДНОМУ id; в текст идут все недостающие."""
     cfg = cfg or get_config()
     if not cfg.task_close_lesson_gate:
         return None
-    task_id = extract_closed_task(last_commit_msg(cwd), cfg.task_close_pattern)
-    if not task_id:
+    task_ids = extract_closed_tasks(last_commit_msg(cwd), cfg.task_close_pattern)
+    missing = [t for t in task_ids if not task_lesson_recorded(cfg, t)]
+    if not missing:
         return None
-    if task_lesson_recorded(cfg, task_id):
-        return None
-    return msg(cfg, "stop_check.closure_reminder", task_id=task_id)
+    # Склейка в СУЩЕСТВУЮЩИЙ плейсхолдер `{task_id}`, а не новый ключ i18n: переопределения
+    # текста у потребителей продолжают работать без правки, а «#1, #2» читается в обоих
+    # местах шаблона («closes task #1, #2» и «referencing #1, #2»).
+    return msg(cfg, "stop_check.closure_reminder", task_id=", #".join(missing))
