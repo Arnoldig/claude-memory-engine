@@ -16,7 +16,6 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-import pytest
 
 from claude_memory import self_check as SC
 from conftest import write_lesson

@@ -24,7 +24,7 @@ import math
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from . import sqlite_index
 from .applies_to import find_lessons_for_path, read_head, strip_scalar

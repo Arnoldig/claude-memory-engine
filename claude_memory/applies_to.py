@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import datetime
 import fnmatch
-import glob
 import os
 import re
 import subprocess
