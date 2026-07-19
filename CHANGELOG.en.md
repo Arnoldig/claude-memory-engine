@@ -4,6 +4,26 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] — 2026-07-19
+
+### Added
+- **A size guard for the project instruction file (`CLAUDE.md`)** ([#16](https://github.com/Arnoldig/claude-memory-engine/issues/16)). The engine watched the hot core of memory and individual lesson files, but nothing watched the file of RULES — the one loaded in full in every single session. Measured on a live project: 172 lines holding 59,000 characters, four times the entire hot-core budget, with not one warning over the whole time it grew.
+
+  **Why counting lines does not work here.** In a "one paragraph, one line, no hard wraps" writing style a single line runs to thousands of characters, so a bloated file looks small when measured in lines. The guard measures CHARACTERS. Bytes were rejected too: Cyrillic takes twice as many, so one threshold would mean different things depending on the project's language.
+
+  New settings: `instructions_budget_chars` (guideline, default 20,000 characters; `0` disables) and `instructions_files` (which files to watch, default `["CLAUDE.md"]`). New message key: `bloat.instructions_large`.
+
+### Boundaries stated out loud
+- **This is a GUIDELINE, not a threshold, and the guard's wording has to hold that line.** There is no technical limit on the instruction file: the Claude Code docs state verbatim that it is loaded in full regardless of length, with no truncation. 20,000 is Anthropic's "under 200 lines" recommendation converted for long lines — an ESTIMATE. Hence three decisions, each aimed at the same misreading ("there is a number, so cut down to the number"): a single trigger point instead of a warn/over pair (two thresholds around an estimate is false precision); warning only, never blocking; and wording that names the real cost — some rules start being silently skipped — and says outright not to trim to the number. Live precedent: a file was cut from 59,000 to 28,600 characters, and pushing further to 20,000 was rejected — a blind exam showed the lines cut for the sake of the number cost more than the size saved.
+- **A hard threshold with silent content loss does exist — for a DIFFERENT file**: auto memory, where Claude Code loads only the first 25KB or the first 200 lines, whichever comes first. Both mechanisms are named separately in the guard's text; otherwise the hardness of one silently transfers to the softness of the other. The existing hot-core messages were deliberately left untouched: consumers override them with their own translations, an edit to the English default would never reach them, and the result would be exactly the stale-copy lag this engine guards against.
+- **The measurement follows what actually reaches the model.** Claude Code strips block-level HTML comments from instruction files before injecting them into context (comments inside code blocks are preserved). Measuring the raw file would measure the wrong object and punish the right behaviour: maintainer notes honestly moved into a comment weigh thousands of characters the model never sees.
+- **Two channels, because one is not enough.** The edit hook only sees `Write|Edit|MultiEdit`; an edit made with `sed`, an external editor or a branch merge is invisible to it, and its silence is indistinguishable from "the file is fine". So the same measurement repeats at `SessionStart` — guarding the RESULT, not the channel. Throttling there is by size CHANGE, not by time: while the file is untouched the engine stays quiet for any number of sessions (a warning about a file nobody changed stops being read, and real warnings stop being noticed along with it), but after a fix and a regrowth to the same number it speaks again — the marker is always rewritten, otherwise the old size would outlive the fix and the guard would go blind silently.
+- **There is NO directory-tree walk.** Claude Code collects instruction files up the tree and loads them on demand from subdirectories; the engine watches exactly the paths listed in `instructions_files`. The list is explicit precisely so a project with a different layout adds its own paths in config rather than silently losing the guard.
+- **Edits made outside the tools and outside the session** (another machine, someone else's commit) are invisible until `SessionStart` — the price of not watching the file continuously.
+
+### Development (not part of the package)
+- Each of the guard's three properties is pinned by its OWN test and verified by mutation: dropping the comment stripping, matching the path by prefix instead of exactly, and writing the marker only when there is something to report — all three turn their test red. The first draft of the "silent on other files" test SURVIVED its mutation: the watched file did not exist in it, so the silence was explained by there being nothing to read rather than by the path check. The test was fixed — precisely the "a test that cannot fail is worse than no test" class.
+
 ## [0.16.0] — 2026-07-19
 
 ### Fixed

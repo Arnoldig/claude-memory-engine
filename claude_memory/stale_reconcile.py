@@ -264,6 +264,12 @@ def _guard_states(cfg: MemoryConfig) -> Tuple[List[str], List[str]]:
         ("stale_reconcile.guard.lesson_count", (getattr(cfg, "lesson_count_warn", 0) or 0) > 0),
         ("stale_reconcile.guard.model_registry",
          bool(getattr(cfg, "llm_actuality_enabled", False) or getattr(cfg, "known_model_substrs", ()))),
+        # Размер файла инструкций проекта (заявка #16). Строка здесь не для полноты списка:
+        # README обещает, что состав стражей ВИДЕН в чек-листе, и страж, отсутствующий в
+        # нём, делает это обещание ложным — а выключенный страж, о котором чек-лист молчит,
+        # неотличим от работающего.
+        ("stale_reconcile.guard.instructions_size",
+         (getattr(cfg, "instructions_budget_chars", 0) or 0) > 0),
     ]
     on = [msg(cfg, key) for key, active in guards if active]
     off = [msg(cfg, key) for key, active in guards if not active]

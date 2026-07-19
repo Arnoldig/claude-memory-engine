@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 642](https://img.shields.io/badge/tests-642-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 670](https://img.shields.io/badge/tests-670-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -101,6 +101,7 @@ The lessons in the example are made up for illustration. The labels are English 
 - At the end of a session write a close phrase (e.g. "Туши свет" or "Done") — the engine shows the memory summary: what is worth re-reading and what has gone stale. Forget to write it and it reminds you at the next start.
 - It prevents accidentally launching a helper sub-agent on the most expensive model and keeps a log of such launches.
 - It warns if the session model is unknown, and once a day asks you to re-verify the model lineup (any new/deactivated models) — the result lands in the close checklist.
+- It watches the size of the project instruction file: it is loaded in full every session, and once it holds too many rules, some of them stop being followed unnoticed.
 - It checks the settings at startup and catches typos before they break anything. Separately, it warns if the engine is looking at a different folder than the one Claude Code writes lessons to — otherwise that looks like "all good, just no lessons yet".
 
 **Flexibility**
@@ -129,6 +130,8 @@ The lessons in the example are made up for illustration. The labels are English 
 **Parallel sessions.** If another session changed a memory file you are about to edit, the engine asks you to re-read it so edits do not overwrite each other. Always on.
 
 **File size.** Warns when a memory file grows too large, and refuses to write a service marker in the wrong format. Always on.
+
+**Instruction file size.** `CLAUDE.md` holds the rules your assistant reads at the start of every session. It is loaded in full no matter how long it is, and it grows unnoticed: counted in lines the file looks small, because a single paragraph often takes one very long line. The problem is not the size itself — the more rules share the context at once, the more of them simply go unfollowed, and nothing about that is visible from the outside. When the file outgrows the guideline, the engine says so once: on an edit, or at the next session start if the file was changed outside the editor. It blocks nothing and never asks you to cut down to a number — rules that matter should stay, even if the file ends up above the guideline. Off switch: `instructions_budget_chars: 0`.
 
 **Expensive sub-agent model.** Once per session, warns if a helper sub-agent is launched on the most powerful and expensive model. Always on.
 
@@ -342,6 +345,17 @@ Here `unit.chars` is the word for the size unit when the engine reports memory s
   "project_root": ".",
   "core_budget_bytes": 20000,
   "core_size_unit": "chars"
+}
+```
+
+**Change the size guideline for the instruction file (`CLAUDE.md`).** The keys `instructions_budget_chars` (guideline in characters; `0` turns the check off) and `instructions_files` (which files to watch — paths relative to the project root) are added. By default the guideline is `20000` characters and one file is watched: `CLAUDE.md` in the project root. Here we raise the guideline and add a second file.
+
+```json
+{
+  "memory_dir": "/Users/you/.claude/projects/<slug>/memory",
+  "project_root": ".",
+  "instructions_budget_chars": 30000,
+  "instructions_files": ["CLAUDE.md", ".claude/CLAUDE.md"]
 }
 ```
 

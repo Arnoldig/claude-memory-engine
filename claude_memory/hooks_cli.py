@@ -94,7 +94,8 @@ def ev_retrieve(event: dict, cfg: MemoryConfig) -> str:
 
 
 def ev_session_start(event: dict, cfg: MemoryConfig) -> str:
-    """SessionStart: проектные ноты + реестр моделей + CATALOG + индекс прецедентов + пульс + долг устаревания."""
+    """SessionStart: проектные ноты + реестр моделей + размер инструкций + CATALOG +
+    индекс прецедентов + пульс + долг устаревания."""
     out_lines = []
     # проектные операционные ноты (печатаются как есть; по умолчанию пусто)
     out_lines.extend(n for n in cfg.session_start_notes if n)
@@ -112,6 +113,13 @@ def ev_session_start(event: dict, cfg: MemoryConfig) -> str:
         if la:
             out_lines.append(la)
     except Exception:  # noqa: BLE001 — fail-open: подстраховка не должна мешать старту
+        pass
+    # размер файла инструкций проекта — бэкстоп к хуку правки (правки мимо Write/Edit)
+    try:
+        ins = instructions_session_start(cfg, cwd=str(event.get("cwd") or ""))
+        if ins:
+            out_lines.append(ins)
+    except Exception:  # noqa: BLE001 — fail-open
         pass
     try:
         text, diag = catalog_generate.build_catalog(cfg.memory_dir, cfg)
@@ -267,6 +275,197 @@ def _measure(path: Path, unit: str) -> int:
 
 def _unit_word(cfg: MemoryConfig, unit: str) -> str:
     return msg(cfg, "unit.chars" if unit == "chars" else "unit.bytes")
+
+
+# ── Размер файла инструкций проекта (CLAUDE.md), заявка #16 ─────────────────
+# Разбор дизайна — в комментарии к `instructions_budget_chars` (config.py): почему одна
+# точка срабатывания, почему знаки, и почему предупреждение, а не блокировка.
+
+_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+# Имя внутреннего файла-маркера троттлинга SessionStart-замера (приставка `_` — приватная,
+# такие файлы вне глобов движка, как `_retrieve_cache.sqlite3` и маркер пульса здоровья).
+INSTRUCTIONS_MARKER_NAME = "_instructions_size.json"
+
+
+def loaded_instructions_text(raw: str) -> str:
+    """Текст файла инструкций таким, каким его ВИДИТ модель.
+
+    Claude Code вырезает БЛОЧНЫЕ HTML-комментарии из файлов инструкций до подачи в
+    контекст (документация Claude Code, сверено 2026-07-19: «Block-level HTML comments
+    in CLAUDE.md files are stripped before the content is injected into Claude's context»);
+    комментарии ВНУТРИ блоков кода при этом сохраняются.
+
+    Почему это не мелочь. Меряя сырой файл, страж мерил бы не тот объект: у шаблона
+    инструкций шапка-комментарий тянет на пару тысяч знаков, которые в контекст не
+    попадают НИКОГДА. Человек, честно вынесший пояснения для сопровождающих в комментарий
+    (ровно то поведение, которого мы хотим), получал бы за это предупреждение — то есть
+    страж наказывал бы за правильное. Это домашний класс дефектов движка: «разбор молча
+    возвращает не то», и он тем опаснее, что расхождение видно только при сверке с
+    первоисточником.
+
+    Блочным считается комментарий, ЗАНИМАЮЩИЙ строку целиком (строка начинается с `<!--`).
+    Комментарий посреди прозы блочным не является — его не трогаем, как и Claude Code.
+    """
+    out, in_fence, in_comment = [], False, False
+    for line in raw.splitlines(keepends=True):
+        if in_comment:
+            if "-->" in line:
+                # хвост после закрытия — обычный текст, он в контекст попадёт
+                in_comment = False
+                tail = line.split("-->", 1)[1]
+                if tail.strip():
+                    out.append(tail)
+            continue
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if not in_fence and line.lstrip().startswith("<!--"):
+            body = line.split("<!--", 1)[1]
+            if "-->" not in body:
+                in_comment = True   # многострочный: глотаем до закрывающей строки
+                continue
+            # Однострочный. Выбрасываем ТОЛЬКО сам комментарий: если за ним на той же
+            # строке остался текст, строка блочным комментарием не является, и модель
+            # этот текст увидит. Вырезав её целиком, замер занизил бы размер — а страж,
+            # который занижает, молчит там, где обязан говорить.
+            rest = body.split("-->", 1)[1]
+            if rest.strip():
+                out.append(rest)
+            continue
+        out.append(line)
+    return "".join(out)
+
+
+def instructions_roots(cfg: MemoryConfig, cwd: Optional[str] = None) -> list:
+    """Корни, от которых разрешаются пути `instructions_files`: корень из конфига и
+    рабочий каталог сессии.
+
+    Второй корень — не перестраховка, а WORKTREE. В worktree-сессии Claude Code читает
+    файл инструкций РАБОЧЕЙ КОПИИ (он лежит под её корнем), а `project_root` в конфиге
+    указывает на главный checkout. Считай мы только от конфига — страж мерил бы чужой
+    файл и молчал бы о том, который сессия реально видит; обе ошибки бесшумны. Ровно эту
+    же граблю движок уже обходит в привязке уроков к путям (там — через git-toplevel).
+    Здесь хватает `cwd` из события: он и есть корень worktree, и стоит ноль подпроцессов.
+    """
+    roots, seen = [], set()
+    for root in (cfg.project_root, cwd):
+        if not root:
+            continue
+        try:
+            key = os.path.abspath(root)
+        except (OSError, ValueError):
+            continue
+        if key not in seen:
+            seen.add(key)
+            roots.append(key)
+    return roots
+
+
+def instructions_oversize(
+    cfg: MemoryConfig, only: Optional[str] = None, cwd: Optional[str] = None
+) -> list:
+    """[(путь-как-в-конфиге, абсолютный путь, размер в знаках)] для файлов СВЕРХ ориентира.
+
+    `only` — абсолютный путь: проверить ровно его (путь правки), а не весь список.
+    Пустой бюджет (0) выключает стража целиком, и это единственный способ его заглушить.
+
+    Абсолютный путь возвращается наряду с относительным намеренно: у двух корней (см.
+    `instructions_roots`) относительные пути СОВПАДАЮТ, и опознавать файл по имени значило
+    бы склеить два разных файла в один — маркер троттлинга потерял бы половину.
+    """
+    budget = cfg.instructions_budget_chars
+    if not budget:
+        return []
+    found, seen = [], set()
+    for root in instructions_roots(cfg, cwd):
+        for rel in cfg.instructions_files:
+            path = os.path.abspath(os.path.join(root, rel))
+            if only is not None and path != only:
+                continue
+            if path in seen:        # тот же файл через второй корень — не дублируем
+                continue
+            seen.add(path)
+            try:
+                size = len(loaded_instructions_text(Path(path).read_text(encoding="utf-8")))
+            except OSError:
+                continue    # файла нет / не читается — не наше дело, молчим
+            if size > budget:
+                found.append((rel, path, size))
+    return found
+
+
+def _instructions_message(cfg: MemoryConfig, found: list) -> str:
+    return "\n".join(
+        msg(cfg, "bloat.instructions_large", filename=rel, size=size,
+            unit=_unit_word(cfg, "chars"), budget=cfg.instructions_budget_chars)
+        for rel, _abs, size in found
+    )
+
+
+def ev_instructions_check(event: dict, cfg: MemoryConfig) -> str:
+    """PostToolUse Write|Edit|MultiEdit: правится ли файл инструкций и не вырос ли он.
+
+    Живёт РЯДОМ с `ev_bloat_check`, а не внутри: та функция построена вокруг инварианта
+    «файл лежит в memory_dir» и первым же делом отсекает всё прочее. Файл инструкций лежит
+    в корне ПРОЕКТА, то есть заведомо вне памяти, и подмешивать его в чужой инвариант
+    значило бы размыть обе проверки.
+
+    Сверка путей — ТОЧНЫМ совпадением, а не по приставке: приставочная сверка ошибается на
+    соседях (`CLAUDE.md.bak`), а список стерегомых путей и без того задан явно.
+    """
+    tool_input = event.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return ""
+    file_path = str(tool_input.get("file_path") or "")
+    if not file_path:
+        return ""
+    # Относительный путь резолвим от cwd СОБЫТИЯ, а не процесса: рабочий каталог хука не
+    # обязан совпадать с каталогом сессии, и промах здесь был бы совершенно бесшумным.
+    if not os.path.isabs(file_path):
+        file_path = os.path.join(str(event.get("cwd") or cfg.project_root), file_path)
+    try:
+        target = os.path.abspath(file_path)
+    except (OSError, ValueError):
+        return ""
+    return _instructions_message(
+        cfg, instructions_oversize(cfg, only=target, cwd=str(event.get("cwd") or ""))
+    )
+
+
+def instructions_session_start(cfg: MemoryConfig, cwd: Optional[str] = None) -> str:
+    """SessionStart: тот же замер, но как БЭКСТОП по результату, а не по каналу.
+
+    Зачем второй канал. Хук правки видит только Write|Edit|MultiEdit. Файл инструкций
+    правят и мимо них — `sed` в терминале, внешний редактор, чужая сессия, слияние ветки, —
+    и на всех этих путях страж молчит, причём молчание неотличимо от «файл в порядке». Урок
+    движка ровно об этом: где каналов события много и часть невидима, сторожи РЕЗУЛЬТАТ.
+
+    Троттлинг — по ИЗМЕНЕНИЮ размера, а не по времени. Это и есть ответ на возражение из
+    заявки («сообщение о файле, который никто не менял, быстро перестают читать»): пока
+    файл не трогали, мы молчим, сколько бы сессий ни прошло; вырос — сказали один раз.
+    Молчание при неизменном размере честно: решение «оставляю как есть» уже принято, и
+    повторять вопрос значит учить человека пролистывать наши предупреждения.
+    """
+    found = instructions_oversize(cfg, cwd=cwd)
+    marker = Path(cfg.memory_dir) / INSTRUCTIONS_MARKER_NAME
+    try:
+        seen = json.loads(marker.read_text(encoding="utf-8"))
+        seen = seen if isinstance(seen, dict) else {}
+    except (OSError, ValueError):
+        seen = {}
+    fresh = [item for item in found if seen.get(item[1]) != item[2]]
+    # Маркер переписываем ВСЕГДА (в т.ч. когда файл ушёл под ориентир и его больше нет в
+    # `found`): иначе запись о старом размере пережила бы починку, и после следующего роста
+    # до ровно того же числа страж промолчал бы.
+    try:
+        marker.write_text(
+            json.dumps({abs_: size for _rel, abs_, size in found}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return _instructions_message(cfg, fresh)
 
 
 # Прежний (до 0.11.0) русский дефолт слова-опознавателя прецедента и дефолт нынешний.
@@ -528,7 +727,12 @@ def main() -> None:
         elif event_name == "post-record":
             _emit_post_context(ev_post_record(data, cfg, session_id, tmpdir) or "")
         elif event_name == "bloat-check":
-            _emit_post_context(ev_bloat_check(data, cfg))
+            # Два независимых замера на одном событии: файлы ПАМЯТИ (ev_bloat_check) и файл
+            # ИНСТРУКЦИЙ проекта (ev_instructions_check). Регистрация хука одна и та же,
+            # второй процесс на каждую правку заводить незачем.
+            _emit_post_context("\n".join(
+                p for p in (ev_bloat_check(data, cfg), ev_instructions_check(data, cfg)) if p
+            ))
         elif event_name == "issue-close-watch":
             _emit_post_context(issue_close_watch.record_close(
                 data, cfg, os.getcwd(), time.time(), session_id
