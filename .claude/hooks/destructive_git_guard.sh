@@ -48,19 +48,26 @@ if "согласовано с владельцем" in cmd:
 ОПАСНЫЕ = (
     (r"reset\s+--hard\b", "git reset --hard"),
     (r"checkout\s+(--\s|\.\s*$|--\s*\.)", "git checkout --"),
+    # Пропуск слов НЕ пересекает границу команды. Две разные вещи, и обе нужны:
+    #   • сам символ-разделитель исключён из СЛОВА — `;&|`()`;
+    #   • между словами стоит `[ \t]+`, а НЕ `\s+`. Перенос строки — такой же
+    #     разделитель команд, как `;`, и в набор символов слова он входить не может:
+    #     он уже внутри `\s`. Глотал его именно разделитель.
+    # Обе ложные тревоги замерены: `git checkout main && rm -f /tmp/x` (2026-07-19)
+    # и та же команда через перенос строки (2026-07-20).
     # `-f`/`--force` у checkout и switch выбрасывают правки так же, как `--`, но
     # мимо шаблона выше: замерено 2026-07-19 — восемь разрушительных команд
     # проходили насквозь, потому что список описывал одну форму каждой.
-    (r"checkout\s+" + r"(?:[^\s]+\s+)*?(-f\b|--force\b)", "git checkout -f"),
+    (r"checkout\s+" + r"(?:[^\s;&|`)(]+[ \t]+)*?(-f\b|--force\b)", "git checkout -f"),
     (r"checkout\s+HEAD\b", "git checkout HEAD"),
-    (r"switch\s+" + r"(?:[^\s]+\s+)*?(--discard-changes\b|-f\b|--force\b)", "git switch --discard-changes"),
+    (r"switch\s+" + r"(?:[^\s;&|`)(]+[ \t]+)*?(--discard-changes\b|-f\b|--force\b)", "git switch --discard-changes"),
     (r"restore\b", "git restore"),
     (r"stash\b", "git stash"),
     (r"clean\s+-\w*f", "git clean -f"),
     # `git rm -f` удаляет файл, перебивая отказ «есть локальные правки».
-    (r"rm\s+" + r"(?:[^\s]+\s+)*?(-\w*f\b|--force\b)", "git rm -f"),
+    (r"rm\s+" + r"(?:[^\s;&|`)(]+[ \t]+)*?(-\w*f\b|--force\b)", "git rm -f"),
     # Удаление рабочей копии с несохранённым в ней.
-    (r"worktree\s+remove\s+" + r"(?:[^\s]+\s+)*?(-f\b|--force\b)", "git worktree remove --force"),
+    (r"worktree\s+remove\s+" + r"(?:[^\s;&|`)(]+[ \t]+)*?(-f\b|--force\b)", "git worktree remove --force"),
 )
 найдено = [
     имя for шаблон, имя in ОПАСНЫЕ
