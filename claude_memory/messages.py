@@ -41,6 +41,7 @@ DEFAULT_MESSAGES = {
     "bloat.description_long": "[memory] {filename}: `description` is {size} chars (> {limit}) — it is the SUMMARY, and the edit gate and retriever print it in full, so oversized ones become a wall of text that stops being read. Do not shorten by dropping substance: move the detail into the lesson body and leave a summary here. If it covers two different topics, that is two lessons — split the file.",
     "bloat.empty_name": "[memory] {filename}: empty name (blank title) — weakens retrieval (name is weighted x2); restore a descriptive title now (raw edit if the edit tool re-blanks it).",
     "catalog.auto_index_note": "<!-- Index below is built automatically by catalog_generate (updated {today}, {count} lessons). Edits inside the markers will be overwritten — change `topic:`/`description:` in the lesson frontmatter. -->",
+    "catalog.unknown_topic_note": " ⟵ `topic: {topic}` is not in the configured topic list — fix the slug in the lesson, or add the topic to `topic_order` in the memory config.",
     "catalog.written": "{catalog_file} written ({count} lessons).",
     "compact.core_over": "[memory] before compact: {core_file} {size} {unit} ({pct}% of budget {budget} {unit}) — good moment to trim the hot core.",
     "diag.broken_link_item": "      - {src} → {tgt}",
@@ -52,6 +53,8 @@ DEFAULT_MESSAGES = {
     "diag.no_name_item": "      - {f}",
     "diag.no_topic_count": "  without topic: {count}",
     "diag.no_topic_item": "      - {f}",
+    "diag.unknown_topic_count": "  topic set but not in the configured topic list: {count}",
+    "diag.unknown_topic_item": "      - {f} (topic: {topic})",
     "diag.oversize_count": "  oversized (>{oversize_bytes}B): {count}",
     "diag.separator": "============================================================",
     "diag.total": "  lessons total: {count}",
@@ -60,6 +63,7 @@ DEFAULT_MESSAGES = {
     "health.many_lessons": "{total} lessons (≥{limit}) — consider checking for duplicates (exact repeats only; do NOT generalize/merge — that loses detail)",
     "health.no_name": "{nn} lessons without a name/title (empty `name:` weakens retrieval — restore the title)",
     "health.no_topic": "{nt} lessons without a topic (⚠ section of the index)",
+    "health.unknown_topic": "{ut} lessons whose topic is not in the configured list ({topics}) — they land in the ⚠ section although the field IS set; fix the slug or add the topic to `topic_order`",
     "health.oversize": "{osz} oversized >{oversize_kb}K",
     "health.pulse_prefix": "[memory: health] ",
     "health.pulse_suffix": ". Details: python3 -m claude_memory.catalog_generate 2>&1",
@@ -93,6 +97,7 @@ DEFAULT_MESSAGES = {
     "self_check.bad_date": "[config self-check] `{field}` is set to `{value}`, which is not a strict ISO date (`YYYY-MM-DD`) — the engine cannot read it, so the check that depends on this field is silently OFF, exactly as if you had never set it. Fix the value to `YYYY-MM-DD`.",
     "self_check.bad_regex": "[config self-check] `{field}` is not a valid regular expression ({error}) — the engine catches the error and treats it as 'no match', so this gate is silently OFF and looks the same as 'nothing found'. Fix the pattern.",
     "self_check.close_pattern_lag": "[config self-check] `{field}` does not recognise every documented form of a GitHub closing keyword — missing: {missing}. GitHub accepts all nine keywords in both spellings (`Closes #42` and `Closes: #42`), so a commit like `{example}` will close the task while the lesson gate stays silent, and 'did not recognise' is indistinguishable from 'no closure happened'. This usually means the pattern was copied from an older default and froze: the current library default covers all nine, so rebuild your additions on top of it.",
+    "self_check.empty_topic_order": "[config self-check] `topic_order` is an empty list — the lessons index gets NO topic sections at all, and every lesson lands in the ⚠ 'no topic' bucket regardless of its `topic:` field. This looks exactly like 'no lessons have topics yet'. Either list your topics, or remove the key entirely to use the engine default.",
     "self_check.ok": "config self-check: OK (message overrides, key names, patterns and dates all valid).",
     "self_check.auto_memory_off": "[config self-check] Claude Code auto-memory is DISABLED ({scope}), but the engine's lesson gates are ON. Nobody can write lessons: the engine never creates them — it only reads, indexes and guards; the writer is Claude Code's auto-memory. The Stop gate will therefore block after every fresh commit and there is no way to satisfy it. Either re-enable auto-memory, or turn off `stop_lessons_enabled` / `task_close_lesson_gate`.",
     "self_check.memory_dir_mismatch": "[config self-check] `memory_dir` is `{memory_dir}`, but Claude Code writes its auto-memory to `{auto_dir}` (`autoMemoryDirectory` set in {scope}). Lessons are written by Claude Code, so the engine is reading a directory nobody writes to: the catalog stays empty, retrieval stays silent, and the Stop gate blocks after every commit with no way to satisfy it. Point `memory_dir` at `{auto_dir}`.",
@@ -103,6 +108,7 @@ DEFAULT_MESSAGES = {
     "self_check.report_auto_dir": "  Claude Code memory: {auto_dir}{note}",
     "self_check.report_match": "  same directory    : {verdict}",
     "self_check.report_lessons": "  lessons visible   : {count}{types}",
+    "self_check.report_messages_coverage": "  messages translated: {done} of {total} — the rest fall back to the English library default, silently and per key, so localized output ends up mixed (neighbouring lines of one checklist in different languages). Missing, e.g.: {sample}",
     "self_check.report_auto_off": "  auto-memory       : DISABLED ({scope}) — nobody writes lessons",
     "self_check.report_note_derived": "  (derived, not confirmed — no lessons found there)",
     "self_check.report_note_explicit": "  (set via autoMemoryDirectory in {scope})",
@@ -189,7 +195,11 @@ def msg(cfg, key: str, **params) -> str:
     не форматируется — отдаём сырой шаблон. Иначе одна опечатка в конфиге тихо отключала
     бы целую функцию (хуки fail-open проглатывают исключение)."""
     overrides = getattr(cfg, "messages", None) if cfg is not None else None
-    override = overrides.get(key) if overrides else None
+    # isinstance, а не просто truthy: `_coerce` типы не приводит, поэтому `"messages": []`
+    # (или строка/число) из JSON доезжает сюда как есть, а `.get` у списка нет. Уронило бы
+    # это НЕ одно сообщение, а всё, что печатает движок, — то есть описка в типе гасила бы
+    # разом каждый хук, включая самодиагностику, которая должна была о ней сказать.
+    override = overrides.get(key) if isinstance(overrides, dict) else None
     default = DEFAULT_MESSAGES.get(key)
     if override is not None:
         out = _safe_format(override, params)

@@ -4,6 +4,28 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.18.0] — 2026-07-19
+
+### Added
+- **The engine now names a topic that is missing from the list** ([#14](https://github.com/Arnoldig/claude-memory-engine/issues/14)). A lesson carrying `topic: <slug>` absent from `topic_order` landed in the "⚠ No topic (add `topic:` to the frontmatter)" section — the engine advising you to add a field the file already had — while the value actually seen appeared in NO channel at all: not the index, not the health pulse, not the verbose diagnostics. A typo in a slug was indistinguishable from a missing field, and tracking it down meant opening files by hand.
+
+  These are now two distinct, non-overlapping counters: "no field" and "value not configured". The first is fixed in the LESSON, the second either in the lesson (a typo) or in the CONFIG (a real topic nobody declared); one heading for both cases pointed at whichever half was wrong. The value is printed in all three channels. New messages: `catalog.unknown_topic_note`, `health.unknown_topic`, `diag.unknown_topic_count`, `diag.unknown_topic_item`.
+
+- **An empty topic taxonomy is now a complaint, not silence** ([#14](https://github.com/Arnoldig/claude-memory-engine/issues/14)). `"topic_order": []` was accepted silently and produced an index with no sections at all: every lesson went to the ⚠ bucket regardless of its `topic:` field. Nothing distinguished that from "no lesson has a topic yet". New message: `self_check.empty_topic_order`.
+
+- **The self-check report shows translation coverage** ([#14](https://github.com/Arnoldig/claude-memory-engine/issues/14)). Measured on a live project: 8 of 142 `messages` keys overridden, the other 134 degrading to the English default as designed — per key, so neighbouring lines of ONE checklist rendered in different languages. No error, no exit code. The `self_check.report()` output (`python3 -m claude_memory.self_check`) now states how much is translated and gives examples of what is missing. New message: `self_check.report_messages_coverage`.
+
+### Fixed
+- **`null` in a list-shaped config field crashed the engine instead of falling back to the default.** `"topic_order": null` reached the constructor as `None` and raised `TypeError` inside `topic_titles()`, far from the cause: the `is not None` check skipped the tuple conversion but did not remove the key from the data, so the dataclass default never applied. The gap affected ALL `_TUPLE_FIELDS`, not just topics, and was closed wholesale: a targeted fix would have meant the next field repeating the same story.
+- **A type slip in `messages` silenced the engine's entire output.** `"messages": []` (a list, a string, a number) reached `msg()` as-is, and a list has no `.get` — what broke was not one message but everything the engine prints, including the self-diagnostics that were supposed to report the slip. The function whose whole job is to never crash now checks the type. Found by a robustness test written to the suite's convention, not by the issue itself.
+
+### Boundaries stated out loud
+- **A missing `core` slug in the taxonomy is deliberately NOT a complaint.** Exactly one place reads it — `bootstrap_topics_from_catalog`, the one-off PREVIEW path for migrating to `topic:`. Complaining every session about a path that runs once in a project's lifetime is a false positive, and false positives are how people learn to stop reading complaints. Pinned by a silence test.
+- **Translation coverage goes in the self-check report, not in `SessionStart` complaints.** Filling in a hundred-plus keys is not a five-minute job, and a complaint every session would become permanent background noise that stops being read (in `self_check` complaints are fixed once and for all — that is its rule). The report is something a person asks for: during setup, and after upgrading the engine. The boundary is pinned by a test, so moving the check into `warnings()` will break it — a deliberate act rather than a passing one.
+- **The engine still does NOT edit your config.** The issue proposed a command that merges a project config with the new default. Only the reading half was built. Today the engine either leaves the config alone or deletes it on `uninstall`; a third "edits in place" mode would introduce a new class of silent failure — a half-applied merge, lost `_*` notes, a "what changed" report that can itself undercount — for a job people already do by hand from this file.
+- **The additive `topic_extra` key was NOT introduced.** It was proposed as a way to extend the built-in list with one line instead of copying it wholesale. Rejected on measurement: both observable configs (a live project and the repository's own `examples/claude-memory.config.ru.json`) SUBTRACT built-in topics rather than adding to them — the example dropped `docs`, the project dropped `testing` and `docs`. Merging would hand both back exactly what they removed on purpose. In exchange it would create a second source of truth and a "both keys set" pairing that fails silently on any carelessness. The real defect here is not "cannot extend" but "replacement is not diagnosed", and that is addressed above.
+- **"Empty field" and "no field" remain indistinguishable.** `parse_frontmatter` does not put empty values into its result, so a valueless `topic:` looks downstream like a missing field. Both are fixed the same way, so there is no need to separate them — but the distinction cannot be promised.
+
 ## [0.17.0] — 2026-07-19
 
 ### Added

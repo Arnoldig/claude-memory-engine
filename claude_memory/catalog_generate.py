@@ -34,6 +34,8 @@ HEALTH_MARKER_NAME = "_catalog_health_marker"
 
 # Раздел для уроков без распознанной темы — всегда последним (сигнал «припиши topic:»).
 NO_TOPIC_KEY = "_none"
+# Сколько РАЗЛИЧНЫХ незаведённых слагов называть в пульсе (остальные — многоточием).
+_PULSE_TOPICS_SHOWN = 5
 
 _MD_LINK_RE = re.compile(r"\]\((?!https?:)([^)]+?\.md)(?:#[^)]*)?\)")
 # Inline-примеры формата ссылки в уроках о самой памяти — не реальные цели.
@@ -135,20 +137,29 @@ def collect_lessons(
     return lessons
 
 
-def _line(lesson: Lesson, cfg: MemoryConfig) -> str:
-    """Одна строка указателя: описание-якорь → ссылка на файл."""
+def _line(lesson: Lesson, cfg: MemoryConfig, notes: Optional[Dict[str, str]] = None) -> str:
+    """Одна строка указателя: описание-якорь → ссылка на файл (+ приписка, если есть)."""
     label = lesson.description or lesson.name or lesson.filename
     label = re.sub(r"\s+", " ", label).strip()
     if len(label) > cfg.desc_max:
         label = label[: cfg.desc_max - 1].rstrip() + "…"
     label = label.replace("]", "⟧")  # не сломать markdown-ссылку
-    return f"- [{label}]({lesson.filename})"
+    return f"- [{label}]({lesson.filename}){(notes or {}).get(lesson.filename, '')}"
 
 
-def _render_group(parts: List[str], group: List[Lesson], cfg: MemoryConfig) -> None:
-    """Уроки темы: сперва без под-группы (плоско), затем по под-группам (subtopic)."""
+def _render_group(
+    parts: List[str],
+    group: List[Lesson],
+    cfg: MemoryConfig,
+    notes: Optional[Dict[str, str]] = None,
+) -> None:
+    """Уроки темы: сперва без под-группы (плоско), затем по под-группам (subtopic).
+
+    notes (filename → приписка) дописывается к строке. Нужен ⚠-разделу: там лежат две
+    разные беды, и приписка называет ту, которую по заголовку раздела не угадать.
+    """
     flat = sorted((x for x in group if not x.subtopic), key=lambda x: x.filename)
-    parts.extend(_line(ls, cfg) for ls in flat)
+    parts.extend(_line(ls, cfg, notes) for ls in flat)
     subs: Dict[str, List[Lesson]] = {}
     for ls in group:
         if ls.subtopic:
@@ -156,7 +167,7 @@ def _render_group(parts: List[str], group: List[Lesson], cfg: MemoryConfig) -> N
     for sub in sorted(subs):
         parts.append(f"- **{sub}:**")
         for ls in sorted(subs[sub], key=lambda x: x.filename):
-            parts.append("  " + _line(ls, cfg))
+            parts.append("  " + _line(ls, cfg, notes))
 
 
 def render_index(lessons: List[Lesson], cfg: Optional[MemoryConfig] = None) -> str:
@@ -180,7 +191,14 @@ def render_index(lessons: List[Lesson], cfg: Optional[MemoryConfig] = None) -> s
     no_topic = by_topic.get(NO_TOPIC_KEY)
     if no_topic:
         parts.append(f"### {cfg.no_topic_title}")
-        _render_group(parts, no_topic, cfg)
+        # Заголовок раздела говорит «добавь topic:» — для урока, где тема НАПИСАНА, это
+        # неверный совет. Приписка называет увиденное значение, чтобы человек сразу видел
+        # разницу между опечаткой в слаге и незаведённой в конфиге темой.
+        notes = {
+            ls.filename: msg(cfg, "catalog.unknown_topic_note", topic=str(ls.topic))
+            for ls in no_topic if ls.topic
+        }
+        _render_group(parts, no_topic, cfg, notes)
         parts.append("")
     return "\n".join(parts).rstrip() + "\n"
 
@@ -253,7 +271,16 @@ def run_diagnostics(
     """Сводка здоровья: сироты-без-темы, без описания/frontmatter, крупные, битые ссылки."""
     cfg = cfg or get_config()
     titles = cfg.topic_titles()
-    no_topic = sorted(ls.filename for ls in lessons if ls.topic not in titles)
+    # Два РАЗНЫХ дефекта, и чинятся они в разных местах: «поля нет» — дописать `topic:` в
+    # УРОК; «значение не заведено» — либо опечатка в слаге урока, либо тема настоящая, но
+    # её нет в КОНФИГЕ. До #14 оба лежали в одной куче под заголовком «добавь topic:», то
+    # есть про вторую половину движок утверждал обратное факту. Наборы намеренно
+    # непересекающиеся: иначе один урок считался бы дважды и цифры в пульсе врали бы.
+    no_topic = sorted(ls.filename for ls in lessons if not ls.topic)
+    unknown_topic = sorted(
+        (ls.filename, str(ls.topic)) for ls in lessons
+        if ls.topic and ls.topic not in titles
+    )
     no_desc = sorted(ls.filename for ls in lessons if not ls.description)
     # Пустой `name` без keywords обнуляет высоковесный (×2) набор токенов заголовка —
     # урок труднее «всплывает» в retrieve. Частый источник — нормализация frontmatter
@@ -266,6 +293,7 @@ def run_diagnostics(
     return {
         "total": [len(lessons)],
         "no_topic": no_topic,
+        "unknown_topic": unknown_topic,
         "no_description": no_desc,
         "no_name": no_name,
         "no_frontmatter": no_fm,
@@ -461,17 +489,29 @@ def format_health_pulse(diag: Dict[str, list], cfg: Optional[MemoryConfig] = Non
     """Компактная сводка здоровья для SessionStart. Пусто, если нет actionable-долга."""
     cfg = cfg or get_config()
     nt = len(diag["no_topic"])
+    unknown = diag.get("unknown_topic", [])
+    ut = len(unknown)
     nn = len(diag.get("no_name", []))
     bl = len(diag["broken_links"])
     wbl = len(diag.get("broken_wikilinks", []))
     osz = len(diag["oversize"])
     total = diag["total"][0] if diag.get("total") else 0
     many = bool(cfg.lesson_count_warn) and total >= cfg.lesson_count_warn
-    if nt == 0 and nn == 0 and bl == 0 and wbl == 0 and not many:
+    if nt == 0 and ut == 0 and nn == 0 and bl == 0 and wbl == 0 and not many:
         return ""
     parts = []
     if nt:
         parts.append(msg(cfg, "health.no_topic", nt=nt))
+    if ut:
+        # Сами слаги — в пульсе, а не только счётчик: причина должна быть ясна с первой
+        # строки, без раскопок по файлам. Список различных значений короток по природе
+        # (тем в проекте единицы), но всё же ограничен — пульс обязан оставаться одной
+        # строкой, иначе его перестают читать.
+        seen = sorted({t for _, t in unknown})
+        shown = ", ".join(seen[:_PULSE_TOPICS_SHOWN])
+        if len(seen) > _PULSE_TOPICS_SHOWN:
+            shown += ", …"
+        parts.append(msg(cfg, "health.unknown_topic", ut=ut, topics=shown))
     if nn:
         parts.append(msg(cfg, "health.no_name", nn=nn))
     if bl:
@@ -483,6 +523,25 @@ def format_health_pulse(diag: Dict[str, list], cfg: Optional[MemoryConfig] = Non
     if osz:
         parts.append(msg(cfg, "health.oversize", osz=osz, oversize_kb=cfg.oversize_bytes // 1000))
     return msg(cfg, "health.pulse_prefix") + "; ".join(parts) + msg(cfg, "health.pulse_suffix")
+
+
+def _pulse_signature(diag: Dict[str, list], cfg: MemoryConfig) -> str:
+    """Подпись «долга» для троттлинга: пульс звучит заново, когда она изменилась.
+
+    Неизвестные темы входят в подпись СОСТАВОМ (`ut`), а не только числом: исправление
+    опечатки в слаге на верный оставляет счётчик прежним, если рядом появился ещё один
+    неизвестный, — и пульс промолчал бы про новую беду до конца суток. Ровно тот
+    молчаливый отказ, который эта заявка и чинит, только внесённый самой починкой.
+    """
+    _total = diag["total"][0] if diag.get("total") else 0
+    _many = 1 if (cfg.lesson_count_warn and _total >= cfg.lesson_count_warn) else 0
+    _unknown = ",".join(sorted({t for _, t in diag.get("unknown_topic", [])}))
+    return (
+        f"nt{len(diag['no_topic'])}_nn{len(diag.get('no_name', []))}"
+        f"_bl{len(diag['broken_links'])}"
+        f"_wbl{len(diag.get('broken_wikilinks', []))}_many{_many}"
+        f"_ut{len(diag.get('unknown_topic', []))}:{_unknown}"
+    )
 
 
 def health_marker_path(cfg: MemoryConfig) -> str:
@@ -510,13 +569,7 @@ def throttle_pulse(
     if today is None:
         today = datetime.date.today()
     marker = marker or health_marker_path(cfg)
-    _total = diag["total"][0] if diag.get("total") else 0
-    _many = 1 if (cfg.lesson_count_warn and _total >= cfg.lesson_count_warn) else 0
-    sig = (
-        f"nt{len(diag['no_topic'])}_nn{len(diag.get('no_name', []))}"
-        f"_bl{len(diag['broken_links'])}"
-        f"_wbl{len(diag.get('broken_wikilinks', []))}_many{_many}"
-    )
+    sig = _pulse_signature(diag, cfg)
     last_date = last_sig = ""
     try:
         last_date, last_sig = (
@@ -541,6 +594,31 @@ def throttle_pulse(
     except OSError:
         pass
     return pulse
+
+
+def print_diagnostics(diag: Dict[str, list], cfg: MemoryConfig, stream) -> None:
+    """Подробная диагностика указателя для человека (CLI). Вынесено из main() ради теста:
+    жалоба может быть верно посчитана и не напечатана — тогда до человека она не дойдёт."""
+    print("\n" + msg(cfg, "diag.separator"), file=stream)
+    print(msg(cfg, "diag.header"), file=stream)
+    print(msg(cfg, "diag.total", count=diag["total"][0]), file=stream)
+    print(msg(cfg, "diag.no_topic_count", count=len(diag["no_topic"])), file=stream)
+    for f in diag["no_topic"]:
+        print(msg(cfg, "diag.no_topic_item", f=f), file=stream)
+    unknown = diag.get("unknown_topic", [])
+    print(msg(cfg, "diag.unknown_topic_count", count=len(unknown)), file=stream)
+    for f, topic in unknown:
+        print(msg(cfg, "diag.unknown_topic_item", f=f, topic=topic), file=stream)
+    print(msg(cfg, "diag.no_description", count=len(diag["no_description"])), file=stream)
+    print(msg(cfg, "diag.no_name", count=len(diag.get("no_name", []))), file=stream)
+    for f in diag.get("no_name", []):
+        print(msg(cfg, "diag.no_name_item", f=f), file=stream)
+    print(msg(cfg, "diag.no_frontmatter", count=len(diag["no_frontmatter"])), file=stream)
+    print(msg(cfg, "diag.oversize_count", oversize_bytes=cfg.oversize_bytes,
+              count=len(diag["oversize"])), file=stream)
+    print(msg(cfg, "diag.broken_links_count", count=len(diag["broken_links"])), file=stream)
+    for src, tgt in diag["broken_links"]:
+        print(msg(cfg, "diag.broken_link_item", src=src, tgt=tgt), file=stream)
 
 
 def main() -> None:
@@ -585,21 +663,7 @@ def main() -> None:
     else:
         print(catalog_text)
 
-    print("\n" + msg(cfg, "diag.separator"), file=sys.stderr)
-    print(msg(cfg, "diag.header"), file=sys.stderr)
-    print(msg(cfg, "diag.total", count=diag["total"][0]), file=sys.stderr)
-    print(msg(cfg, "diag.no_topic_count", count=len(diag["no_topic"])), file=sys.stderr)
-    for f in diag["no_topic"]:
-        print(msg(cfg, "diag.no_topic_item", f=f), file=sys.stderr)
-    print(msg(cfg, "diag.no_description", count=len(diag["no_description"])), file=sys.stderr)
-    print(msg(cfg, "diag.no_name", count=len(diag.get("no_name", []))), file=sys.stderr)
-    for f in diag.get("no_name", []):
-        print(msg(cfg, "diag.no_name_item", f=f), file=sys.stderr)
-    print(msg(cfg, "diag.no_frontmatter", count=len(diag["no_frontmatter"])), file=sys.stderr)
-    print(msg(cfg, "diag.oversize_count", oversize_bytes=cfg.oversize_bytes, count=len(diag["oversize"])), file=sys.stderr)
-    print(msg(cfg, "diag.broken_links_count", count=len(diag["broken_links"])), file=sys.stderr)
-    for src, tgt in diag["broken_links"]:
-        print(msg(cfg, "diag.broken_link_item", src=src, tgt=tgt), file=sys.stderr)
+    print_diagnostics(diag, cfg, stream=sys.stderr)
 
 
 if __name__ == "__main__":

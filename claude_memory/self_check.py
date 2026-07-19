@@ -48,6 +48,8 @@ from .lesson_files import lesson_paths, lesson_type
 from .messages import DEFAULT_MESSAGES, msg
 
 _PH_RE = re.compile(r"\{([^{}]+)\}")
+# Сколько недостающих ключей `messages` называть в отчёте поимённо (остальные — числом).
+_COVERAGE_SAMPLE = 5
 
 
 def _placeholders(template: str) -> set:
@@ -314,6 +316,47 @@ def bad_date_issues(cfg: MemoryConfig) -> List[Tuple[str, str]]:
     return out
 
 
+def topic_order_issues(cfg: MemoryConfig) -> List[str]:
+    """Список кодов дефектов таксономии тем (пусто — всё в порядке).
+
+    Сегодня код один: пустая таксономия. `"topic_order": []` принималось молча и давало
+    указатель БЕЗ единого раздела — все уроки уезжали в «⚠ без темы», и отличить это от
+    «просто ещё нет уроков с темой» было нечем.
+
+    Отсутствие слага `core` намеренно НЕ жалоба, хотя соблазн есть: его читает ровно одно
+    место — `catalog_generate.bootstrap_topics_from_catalog`, разовый ПРЕВЬЮ-путь миграции
+    на `topic:`. Жаловаться каждую сессию про путь, который выполняется один раз за жизнь
+    проекта, — ложное срабатывание, а с него начинается привычка не читать жалобы вовсе.
+    """
+    out: List[str] = []
+    order = getattr(cfg, "topic_order", None)
+    try:
+        empty = len(order) == 0
+    except TypeError:
+        return out  # мусор в поле — не наша проверка; о нём скажет тот, кто поле читает
+    if empty:
+        out.append("empty")
+    return out
+
+
+def missing_message_keys(cfg: MemoryConfig) -> List[str]:
+    """Ключи `messages`, которые проект НЕ перевёл (пусто, если перевода нет вовсе).
+
+    Зачем. `msg()` штатно деградирует на английский дефолт по КАЖДОМУ ключу отдельно —
+    она для того и сделана, чтобы никогда не падать. Цена: выпуск движка, добавивший
+    ключи, молча вставляет английские строки посреди локализованного вывода, и соседние
+    пункты одного чеклиста рендерятся на разных языках. Ни ошибки, ни кода возврата.
+
+    Пустой override — НЕ дефект: проект сознательно на дефолтах. Без этого различения
+    жалоба звучала бы у большинства и обесценила бы сигнал. Считаем ПЕРЕСЕЧЕНИЕ с
+    дефолтом: ключ-сирота (опечатка, отмерший ключ) не должен зачитываться за покрытие.
+    """
+    overrides = getattr(cfg, "messages", None) or {}
+    if not isinstance(overrides, dict) or not overrides:
+        return []
+    return sorted(set(DEFAULT_MESSAGES) - set(overrides))
+
+
 def warnings(cfg: MemoryConfig = None, verbose: bool = False) -> List[str]:
     """Готовые строки-предупреждения самодиагностики (пусто, если всё чисто).
 
@@ -336,6 +379,8 @@ def warnings(cfg: MemoryConfig = None, verbose: bool = False) -> List[str]:
                 missing=", ".join(m), example=f"{m[0]} #42")
             for f, m in close_pattern_lag_issues(cfg)]
     out += [msg(cfg, "self_check.bad_date", field=f, value=v) for f, v in bad_date_issues(cfg)]
+    out += [msg(cfg, "self_check.empty_topic_order")
+            for code in topic_order_issues(cfg) if code == "empty"]
     out += settings_issues(cfg)
     if verbose:
         flagged = {k for k, _ in typo_key_issues(cfg)}
@@ -380,6 +425,14 @@ def report(cfg: MemoryConfig = None) -> List[str]:
         types[t] = types.get(t, 0) + 1
     types_str = ("  [" + ", ".join(f"{k}: {v}" for k, v in sorted(types.items())) + "]") if types else ""
     out.append(msg(cfg, "self_check.report_lessons", count=len(paths), types=types_str))
+
+    missing = missing_message_keys(cfg)
+    if missing:
+        total = len(DEFAULT_MESSAGES)
+        out.append(msg(cfg, "self_check.report_messages_coverage",
+                       done=total - len(missing), total=total,
+                       sample=", ".join(missing[:_COVERAGE_SAMPLE])
+                       + (", …" if len(missing) > _COVERAGE_SAMPLE else "")))
 
     disabled_at = claude_code_env.auto_memory_disabled(root)
     if disabled_at:
