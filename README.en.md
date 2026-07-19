@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 682](https://img.shields.io/badge/tests-682-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 725](https://img.shields.io/badge/tests-725-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -336,6 +336,8 @@ Here `unit.chars` is the word for the size unit when the engine reports memory s
   ]
 }
 ```
+
+This key REPLACES the built-in list entirely rather than extending it: what you list is what you get. Hence two safeguards for when the list and the lessons drift apart. If a lesson's topic is set but missing from the list, the engine names the value itself — both in the index and in the health summary ("topic set but not in the configured topic list"); previously such a lesson landed in the "⚠ no topic" section advising you to add a topic it already had. And an empty list (`"topic_order": []`) is now treated as a configuration error and reported at session start: you get no sections at all, which looks exactly like "nobody has assigned topics yet". To go back to the built-in list, remove the key rather than emptying it.
 
 **Increase the "hot core" limit (the main memory file).** The keys `core_budget_bytes` and `core_size_unit` are added. The default limit is `15000`; here we raise it to `20000`.
 

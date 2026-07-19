@@ -420,12 +420,26 @@ _TUPLE_FIELDS = {
 
 
 def _coerce(data: dict) -> dict:
-    """Готовит dict из JSON к передаче в MemoryConfig: list→tuple, topic_order→tuple пар."""
+    """Готовит dict из JSON к передаче в MemoryConfig: list→tuple, topic_order→tuple пар.
+
+    `null` в списочном поле = «не задано»: ключ УБИРАЕМ из данных, и вступает дефолт
+    датакласса. Раньше проверка `is not None` пропускала только приведение к кортежам, а
+    сам None ехал в конструктор — и падал уже у потребителя поля, далеко от причины
+    (`"topic_order": null` → TypeError в `topic_titles()`; в списочных полях — там, где
+    поле перебирают). Зазор был общий для всех `_TUPLE_FIELDS`, поэтому и закрыт целиком:
+    точечная починка одной темы означала бы, что следующее поле повторит ту же историю.
+    """
     out = dict(data)
-    if "topic_order" in out and out["topic_order"] is not None:
+    if out.get("topic_order") is None:
+        out.pop("topic_order", None)
+    else:
         out["topic_order"] = tuple(tuple(pair) for pair in out["topic_order"])
     for k in _TUPLE_FIELDS:
-        if k in out and out[k] is not None:
+        if k not in out:
+            continue
+        if out[k] is None:
+            out.pop(k)
+        else:
             out[k] = tuple(out[k])
     # Выкидываем неизвестные ключи, чтобы чужой конфиг не падал на новых/чужих полях
     # (forward-compat: старый движок × конфиг новой версии). Но ПОМНИМ выброшенное:
