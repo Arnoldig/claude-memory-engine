@@ -38,9 +38,10 @@ def sandbox(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _run(command: str, project_dir: Path) -> subprocess.CompletedProcess:
+def _run(command: str, project_dir: Path,
+         extra_env: dict = None) -> subprocess.CompletedProcess:
     payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
-    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project_dir))
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project_dir), **(extra_env or {}))
     return subprocess.run(["bash", str(HOOK)], input=payload, capture_output=True,
                           text=True, env=env, timeout=30)
 
@@ -359,7 +360,8 @@ def test_non_utf8_allow_list_does_not_disable_the_guard(sandbox: Path) -> None:
     assert _blocks(_run(f'gh issue comment 8 --body "{SECRET}"', sandbox))
 
 
-@pytest.mark.parametrize("flag", ["-F", "--input", "--file", "--body-file", "--notes-file"])
+@pytest.mark.parametrize("flag", ["-F", "--input", "--file", "--body-file", "--notes-file",
+                                  "--field"])
 def test_file_flag_forms_are_all_inspected(sandbox: Path, tmp_path: Path, flag: str) -> None:
     """Короткие формы флага не досматривались — обход одной буквой.
 
@@ -377,6 +379,47 @@ def test_key_at_file_form_is_inspected(sandbox: Path, tmp_path: Path) -> None:
     dirty = tmp_path / "dirty.md"
     dirty.write_text(f"текст с {SECRET} внутри\n", encoding="utf-8")
     assert _blocks(_run(f"gh api repos/o/r/issues -X POST -F body=@{dirty}", sandbox))
+
+
+def test_attached_shorthand_value_is_inspected(sandbox: Path, tmp_path: Path) -> None:
+    """ПРИЛИПШЕЕ значение краткого флага: `-Fфайл` и `-Fключ=@файл` без пробела.
+
+    Стандартная краткая запись, `gh` принимает её везде. Найдено ревью diff и замерено:
+    первая правка требовала разделитель и пропускала обе формы с кодом 0 — то есть
+    закрывала обход одной буквой и тут же оставляла обход одним пробелом."""
+    dirty = tmp_path / "dirty.md"
+    dirty.write_text(f"текст с {SECRET} внутри\n", encoding="utf-8")
+    assert _blocks(_run(f"gh issue create --title x -F{dirty}", sandbox))
+    assert _blocks(_run(f"gh api repos/o/r/issues -X POST -Fbody=@{dirty}", sandbox))
+
+
+def test_path_containing_equals_sign_is_still_read(sandbox: Path, tmp_path: Path) -> None:
+    """РЕГРЕСС-ЗАМОК: обычный путь со знаком равенства обязан читаться.
+
+    Разбор формы `ключ=@файл` сперва применялся ко ВСЕМ флагам, и путь вида `dir=ty.md`
+    переставал читаться — страж становился СЛАБЕЕ, чем был ДО починки. Пойман ревью и
+    подтверждён замером против прежней версии. Разбор теперь только у `-F`/`--field`."""
+    dirty = tmp_path / "dir=ty.md"
+    dirty.write_text(f"текст с {SECRET} внутри\n", encoding="utf-8")
+    assert _blocks(_run(f"gh issue create --title x --body-file {dirty}", sandbox))
+
+
+@pytest.mark.parametrize("env", [
+    {"PRIVATE_WORDS_GUARD_DEADLINE": "abc"},                  # не число
+    {"PRIVATE_WORDS_GUARD_DEADLINE": "99999999999999999999"},  # signal.alarm: OverflowError
+    {"PRIVATE_WORDS_GUARD_DEADLINE": "-5"},                   # отрицательное
+    {"PRIVATE_WORDS_GUARD_TEST_SLOW": "abc"},                 # не число
+])
+def test_garbage_in_env_knobs_does_not_disable_the_guard(sandbox: Path, env: dict) -> None:
+    """Мусор в переменной окружения не имеет права снять стража.
+
+    Непойманное исключение — это код 1, а код 1 НЕ БЛОКИРУЕТ. То есть опечатка в ручке
+    молча отключала бы защиту целиком: ровно тот дефект, что чинится выше про не-UTF8
+    в списке слов, воспроизведённый внутри его же починки. Найдено ревью diff, замерено:
+    все четыре входа давали код 1 и пропускали приватное слово."""
+    p = _run(f'gh issue create --title x --body "{SECRET}"', sandbox, env)
+    assert p.returncode == 2, f"страж умер вместо блокировки: код={p.returncode}"
+    assert "приватного списка" in p.stderr
 
 
 def test_inline_key_value_form_is_not_treated_as_a_path(sandbox: Path) -> None:
@@ -410,10 +453,17 @@ def test_watchdog_does_not_fire_on_normal_input(sandbox: Path) -> None:
     assert p.returncode == 0 and not p.stderr.strip()
 
 
-def test_deadline_default_is_below_consumer_hook_timeout() -> None:
-    """ИНВАРИАНТ, без которого таймер бесполезен: собственный дедлайн обязан быть строго
-    меньше таймаута хука у потребителей (10 с). Иначе исход снова определяет среда —
-    то есть пропуск, ровно то, что здесь чинится."""
-    m = re.search(r'PRIVATE_WORDS_GUARD_DEADLINE", "(\d+)"', HOOK.read_text(encoding="utf-8"))
-    assert m, "дедлайн по умолчанию не найден — таймер могли выключить незаметно"
-    assert 0 < int(m.group(1)) < 10, f"дедлайн {m.group(1)} с не меньше таймаута хука"
+def test_default_deadline_is_below_consumer_hook_timeout(sandbox: Path) -> None:
+    """ИНВАРИАНТ, без которого таймер бесполезен: дедлайн ПО УМОЛЧАНИЮ обязан быть строго
+    меньше таймаута хука. У обоих потребителей он задан явно и равен 10 с — берём меньшее
+    из известных. Не уложись страж в него, исход снова определяла бы среда, то есть
+    пропуск: ровно то, что здесь чинится.
+
+    Судим по ПОВЕДЕНИЮ, а не по тексту файла: прежняя версия этого теста искала число
+    регулярным выражением и умерла молча при первом же переносе дедлайна в функцию —
+    то есть проверка исчезла бы, а набор остался бы зелёным."""
+    p, secs = _timed('gh issue create --title x --body "безобидный текст"', sandbox,
+                     {"PRIVATE_WORDS_GUARD_TEST_SLOW": "9"})   # дольше умолчания, короче 10 с
+    assert p.returncode == 2, "таймер по умолчанию не сработал"
+    assert "за отведённое время" in p.stderr
+    assert secs < 9, f"страж ответил только к {secs:.1f} с — на таймауте 10 с это пропуск"
