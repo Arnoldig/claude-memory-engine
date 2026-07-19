@@ -28,6 +28,20 @@ import pytest
 from claude_memory import hooks_cli as H
 
 
+@pytest.fixture(autouse=True)
+def isolated_tmpdir(tmp_path, monkeypatch) -> Path:
+    """Метки разовости нуджа пишутся во временный каталог. Без изоляции они утекали бы в
+    системный `/tmp` и переживали прогон сюиты: следующий запуск получил бы «уже сказано»
+    и тест зеленел бы на молчащем страже. Тест, зависящий от мусора прошлого прогона,
+    закрепляет мусор, а не поведение."""
+    import tempfile
+
+    td = tmp_path / "hooktmp"
+    td.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(td))
+    return td
+
+
 def _write(root: str, name: str, text: str) -> Path:
     p = Path(root) / name
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -81,9 +95,11 @@ def test_text_after_a_closing_comment_still_counts(cfg) -> None:
     должен говорить, и это опаснее ложного крика: молчание неотличимо от «всё в порядке»."""
     cfg2 = replace(cfg, instructions_budget_chars=100)
     p = _write(cfg.project_root, "CLAUDE.md", "<!-- коротко --> " + "x" * 200 + "\n")
-    assert "CLAUDE.md" in H.ev_instructions_check(_edit(p), cfg2), "хвост строки потерян"
+    # разные session_id: нудж разовый на (сессию, файл), и вторая проверка иначе молчала бы
+    # по причине троттлинга, а не разбора — тест доказывал бы не то, что заявлено
+    assert "CLAUDE.md" in H.ev_instructions_check(_edit(p), cfg2, "s-one"), "хвост строки потерян"
     p.write_text("<!--\nмного\n--> " + "x" * 200 + "\n", encoding="utf-8")
-    assert "CLAUDE.md" in H.ev_instructions_check(_edit(p), cfg2), "хвост после многострочного потерян"
+    assert "CLAUDE.md" in H.ev_instructions_check(_edit(p), cfg2, "s-two"), "хвост после многострочного потерян"
 
 
 def test_inline_comment_is_not_block_level(cfg) -> None:
@@ -164,6 +180,56 @@ def test_default_watches_claude_md(cfg) -> None:
     assert cfg.instructions_budget_chars > 0
 
 
+def test_mixed_fence_markers_do_not_close_each_other(cfg) -> None:
+    """Блок кода закрывается ТЕМ ЖЕ маркером, которым открыт. Считай мы `~~~` закрытием
+    ```-блока — содержимое блока начало бы резаться как комментарий. Замерено на прежней
+    редакции: файл в 34 знака мерился как 12, занижение на две трети. Занижение опаснее
+    завышения: страж молчит там, где обязан говорить."""
+    text = "```\n~~~\n<!-- это видно модели -->\n```\n"
+    assert len(H.loaded_instructions_text(text)) == len(text)
+
+
+def test_unclosed_comment_does_not_swallow_the_file(cfg) -> None:
+    """Самая дорогая находка ревью. Строка `<!--` без закрытия — это опечатка или
+    недописанная правка, а не комментарий. Прежняя редакция вырезала по ней ВЕСЬ остаток
+    файла: замер файла в 10 000 знаков давал НОЛЬ, то есть страж замолкал навсегда ровно
+    там, где обязан кричать. Разбор, молча отдающий пустоту на непонятном вводе, — общий
+    корень багов этого движка."""
+    cfg2 = replace(cfg, instructions_budget_chars=100)
+    p = _write(cfg.project_root, "CLAUDE.md", "<!-- забыли закрыть\n" + "x" * 10000)
+    assert "CLAUDE.md" in H.ev_instructions_check(_edit(p), cfg2)
+
+
+def test_crlf_line_endings_are_handled(cfg) -> None:
+    """Файл, правленный в редакторе Windows. `splitlines` их понимает, но проверка стоит
+    дёшево, а расхождение было бы бесшумным."""
+    assert len(H.loaded_instructions_text("<!--\r\nшапка\r\n-->\r\n" + "x" * 300)) == 300
+
+
+def test_non_utf8_file_does_not_kill_the_hook(cfg) -> None:
+    """`read_text` на файле не в UTF-8 бросает UnicodeDecodeError — это ValueError, а не
+    OSError, и он вылетал НАРУЖУ. В хуке правки это уносило с собой уже посчитанный
+    результат соседней проверки памяти, на старте — предупреждения обо всех остальных
+    файлах. У движка уже был ровно такой прецедент: один байт в чужой кодировке в списке
+    приватных слов отключал стража целиком."""
+    cfg2 = replace(cfg, instructions_budget_chars=100)
+    p = Path(cfg.project_root) / "CLAUDE.md"
+    p.write_bytes("Привет".encode("cp1251") * 500)      # 3000 байт мимо UTF-8
+    out = H.ev_instructions_check(_edit(p), cfg2)       # не должно бросить
+    assert "CLAUDE.md" in out
+
+
+def test_case_insensitive_filesystem_does_not_split_the_channels(cfg) -> None:
+    """На файловой системе macOS файл `Claude.md` читается по имени `CLAUDE.md`. Прежняя
+    редакция расходилась в показаниях: хук правки молчал (строки не равны), а замер на
+    старте срабатывал и печатал имя, которого на диске нет."""
+    cfg2 = replace(cfg, instructions_budget_chars=100)
+    p = _write(cfg.project_root, "Claude.md", "x" * 300)
+    if not (Path(cfg.project_root) / "CLAUDE.md").exists():
+        pytest.skip("файловая система чувствительна к регистру — расхождения не бывает")
+    assert H.ev_instructions_check(_edit(p), cfg2) != "", "хук правки промолчал на своём файле"
+
+
 # ── Worktree: файл сессии, а не файл главной рабочей копии ───────────────────
 
 def test_worktree_file_is_watched_not_only_the_config_root(cfg, tmp_path) -> None:
@@ -180,6 +246,36 @@ def test_worktree_file_is_watched_not_only_the_config_root(cfg, tmp_path) -> Non
              "cwd": str(wt)}
     assert "CLAUDE.md" in H.ev_instructions_check(event, cfg2)
     assert "CLAUDE.md" in H.instructions_session_start(cfg2, cwd=str(wt))
+
+
+def test_session_opened_in_a_subdirectory_still_sees_the_file(cfg, tmp_path) -> None:
+    """Самый обычный случай: сессия открыта не в корне рабочей копии, а в подкаталоге.
+    Прежняя редакция теряла ОБА канала разом — корень из конфига указывает на главную
+    копию, `cwd` на подкаталог, и файл не совпадал ни с одним. Claude Code при этом идёт
+    по дереву ВВЕРХ и файл читает, значит он в контексте, значит его размер имеет
+    значение. Молчание тут неотличимо от «файл в порядке»."""
+    cfg2 = replace(cfg, instructions_budget_chars=100)
+    wt = tmp_path / "worktrees" / "wt1"
+    (wt / "backend").mkdir(parents=True)
+    (wt / "CLAUDE.md").write_text("x" * 300, encoding="utf-8")
+    deep = str(wt / "backend")
+    event = {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "CLAUDE.md")}, "cwd": deep}
+    assert H.ev_instructions_check(event, cfg2) != "", "хук правки промолчал"
+    assert H.instructions_session_start(cfg2, cwd=deep) != "", "замер на старте промолчал"
+
+
+def test_message_names_which_file_when_two_roots_collide(cfg, tmp_path) -> None:
+    """У двух корней относительные пути совпадают. Печатай мы голый `CLAUDE.md` — вышли бы
+    две неразличимые строки, и человек не понял бы, какой файл чинить. Смысл двухкорневой
+    схемы при этом теряется целиком."""
+    cfg2 = replace(cfg, instructions_budget_chars=100)
+    wt = Path(cfg.project_root) / ".claude" / "worktrees" / "wt1"
+    wt.mkdir(parents=True)
+    (wt / "CLAUDE.md").write_text("x" * 400, encoding="utf-8")
+    _write(cfg.project_root, "CLAUDE.md", "x" * 300)
+    out = H._instructions_message(cfg2, H.instructions_oversize(cfg2, cwd=str(wt)))
+    assert ".claude/worktrees/wt1/CLAUDE.md" in out, out
+    assert len({line for line in out.splitlines() if line.strip()}) == 2, "строки неразличимы"
 
 
 def test_two_roots_do_not_collapse_into_one_entry(cfg, tmp_path) -> None:
@@ -289,6 +385,78 @@ def test_memory_bloat_check_is_not_disturbed(cfg) -> None:
     core = _write(cfg.memory_dir, cfg.core_file, "x" * (cfg.core_budget_bytes + 10))
     assert H.ev_bloat_check(_edit(core), cfg2) != ""
     assert H.ev_instructions_check(_edit(core), cfg2) == ""
+
+
+# ── ПОДКЛЮЧЁН ЛИ СТРАЖ ВООБЩЕ ────────────────────────────────────────────────
+# Всё выше зовёт функции стража напрямую — и потому НЕ доказывает, что диспетчер их
+# зовёт. Замерено на первой редакции: обе точки подключения выдернуты, вся сюита из 670
+# тестов зелёная. То есть страж мог быть мёртв в проде, а набор тестов уверял в обратном
+# — «мёртвый страж выглядит как рабочий», домашняя болезнь этого движка, воспроизведённая
+# внутри починки, которая её же и стережёт. Два теста ниже гоняют НАСТОЯЩИЙ диспетчер
+# через bash-обёртку, как это делает Claude Code.
+
+import json as _json
+import os as _os
+import subprocess as _sp
+
+_ROOT = Path(__file__).resolve().parents[1]
+_WRAPPER = _ROOT / "hooks" / "cme_hook.sh"
+
+
+def _run_hook(event: str, payload: dict, cfg_path: Path) -> _sp.CompletedProcess:
+    return _sp.run(
+        ["bash", str(_WRAPPER), event],
+        input=_json.dumps(payload), capture_output=True, text=True, timeout=60,
+        env={**_os.environ, "PYTHONPATH": str(_ROOT), "CLAUDE_MEMORY_CONFIG": str(cfg_path)},
+    )
+
+
+@pytest.fixture
+def wired(cfg, tmp_path) -> tuple:
+    """Настоящий конфиг на диске + раздутый файл инструкций."""
+    cfg_path = tmp_path / "claude-memory.config.json"
+    cfg_path.write_text(_json.dumps({
+        "memory_dir": cfg.memory_dir, "project_root": cfg.project_root,
+        "instructions_budget_chars": 100,
+    }), encoding="utf-8")
+    target = _write(cfg.project_root, "CLAUDE.md", "x" * 400)
+    return cfg_path, target
+
+
+def test_edit_hook_is_actually_wired_to_the_dispatcher(wired) -> None:
+    """Правка файла инструкций через РЕАЛЬНУЮ обёртку хука обязана вернуть текст в
+    контекст модели. PostToolUse инжектит только через hookSpecificOutput.additionalContext
+    — голый stdout туда не попадает, поэтому проверяем именно этот конверт."""
+    cfg_path, target = wired
+    p = _run_hook("bloat-check", {"tool_name": "Edit", "session_id": "s1",
+                                  "tool_input": {"file_path": str(target)}}, cfg_path)
+    assert p.returncode == 0 and "Traceback" not in p.stderr, p.stderr[:400]
+    ctx = _json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "instructions-size" in ctx and "CLAUDE.md" in ctx
+
+
+def test_session_start_hook_is_actually_wired_to_the_dispatcher(wired) -> None:
+    """Тот же вопрос для второго канала: SessionStart печатает в stdout напрямую."""
+    cfg_path, _target = wired
+    p = _run_hook("session-start", {"hook_event_name": "SessionStart"}, cfg_path)
+    assert p.returncode == 0 and "Traceback" not in p.stderr, p.stderr[:400]
+    assert "instructions-size" in p.stdout
+
+
+def test_edit_nudge_fires_once_per_session_and_file(cfg, tmp_path) -> None:
+    """README обещает, что движок говорит об этом ОДИН раз. Без разовости сессия, режущая
+    раздутый файл десятком правок, получала бы то же сообщение на каждую — замерено: три
+    правки, три текста по 816 знаков. Страж работал бы против собственной цели, заливая
+    контекст ровно тогда, когда его освобождают."""
+    cfg2 = replace(cfg, instructions_budget_chars=100)
+    p = _write(cfg.project_root, "CLAUDE.md", "x" * 400)
+    td = str(tmp_path / "tmp")
+    ev = _edit(p)
+    assert H.ev_instructions_check(ev, cfg2, "sess1", td) != ""
+    p.write_text("x" * 500, encoding="utf-8")
+    assert H.ev_instructions_check(ev, cfg2, "sess1", td) == "", "нудж повторился в той же сессии"
+    # другая сессия — свой разговор, метка не должна её глушить
+    assert H.ev_instructions_check(ev, cfg2, "sess2", td) != ""
 
 
 def test_guard_is_listed_in_the_session_checklist(cfg) -> None:

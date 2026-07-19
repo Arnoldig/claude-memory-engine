@@ -281,7 +281,7 @@ def _unit_word(cfg: MemoryConfig, unit: str) -> str:
 # Разбор дизайна — в комментарии к `instructions_budget_chars` (config.py): почему одна
 # точка срабатывания, почему знаки, и почему предупреждение, а не блокировка.
 
-_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Имя внутреннего файла-маркера троттлинга SessionStart-замера (приставка `_` — приватная,
 # такие файлы вне глобов движка, как `_retrieve_cache.sqlite3` и маркер пульса здоровья).
 INSTRUCTIONS_MARKER_NAME = "_instructions_size.json"
@@ -306,24 +306,36 @@ def loaded_instructions_text(raw: str) -> str:
     Блочным считается комментарий, ЗАНИМАЮЩИЙ строку целиком (строка начинается с `<!--`).
     Комментарий посреди прозы блочным не является — его не трогаем, как и Claude Code.
     """
-    out, in_fence, in_comment = [], False, False
+    out = []
+    fence = None        # маркер, которым открыт блок кода (``` или ~~~), либо None
+    pending = None      # строки предполагаемого многострочного комментария (см. ниже)
     for line in raw.splitlines(keepends=True):
-        if in_comment:
+        if pending is not None:
+            pending.append(line)
             if "-->" in line:
                 # хвост после закрытия — обычный текст, он в контекст попадёт
-                in_comment = False
                 tail = line.split("-->", 1)[1]
                 if tail.strip():
                     out.append(tail)
+                pending = None
             continue
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
+        m = _FENCE_RE.match(line)
+        if m:
+            # Блок кода закрывается ТЕМ ЖЕ маркером, которым открыт. Считай мы любой
+            # `~~~` закрытием `` ``` ``-блока — содержимое блока кода начало бы резаться
+            # как комментарий, а это занижение замера: страж замолчал бы на файле,
+            # который документирует markdown. Замерено: файл в 62 знака мерился как 12.
+            marker = m.group(1)[0]
+            if fence is None:
+                fence = marker
+            elif fence == marker:
+                fence = None
             out.append(line)
             continue
-        if not in_fence and line.lstrip().startswith("<!--"):
+        if fence is None and line.lstrip().startswith("<!--"):
             body = line.split("<!--", 1)[1]
             if "-->" not in body:
-                in_comment = True   # многострочный: глотаем до закрывающей строки
+                pending = [line]    # многострочный: копим до закрывающей строки
                 continue
             # Однострочный. Выбрасываем ТОЛЬКО сам комментарий: если за ним на той же
             # строке остался текст, строка блочным комментарием не является, и модель
@@ -334,32 +346,93 @@ def loaded_instructions_text(raw: str) -> str:
                 out.append(rest)
             continue
         out.append(line)
+    # НЕЗАКРЫТЫЙ комментарий: дошли до конца файла, а `-->` так и не встретили. Значит
+    # это был не комментарий, а опечатка (или недописанная правка) — и вырезать по ней
+    # весь остаток файла нельзя. Замерено на прежней редакции: одна строка `<!--` без
+    # закрытия давала замер НОЛЬ на файле в 10 000 знаков, то есть страж замолкал
+    # навсегда ровно там, где обязан кричать. Разбор, который на непонятном вводе молча
+    # отдаёт пустоту, — общий корень багов этого движка; здесь он же.
+    if pending is not None:
+        out.extend(pending)
     return "".join(out)
 
 
 def instructions_roots(cfg: MemoryConfig, cwd: Optional[str] = None) -> list:
-    """Корни, от которых разрешаются пути `instructions_files`: корень из конфига и
-    рабочий каталог сессии.
+    """Корни, от которых разрешаются пути `instructions_files`: корень из конфига, рабочий
+    каталог сессии и ВСЕ его каталоги-предки.
 
-    Второй корень — не перестраховка, а WORKTREE. В worktree-сессии Claude Code читает
-    файл инструкций РАБОЧЕЙ КОПИИ (он лежит под её корнем), а `project_root` в конфиге
-    указывает на главный checkout. Считай мы только от конфига — страж мерил бы чужой
-    файл и молчал бы о том, который сессия реально видит; обе ошибки бесшумны. Ровно эту
-    же граблю движок уже обходит в привязке уроков к путям (там — через git-toplevel).
-    Здесь хватает `cwd` из события: он и есть корень worktree, и стоит ноль подпроцессов.
+    Обход ВВЕРХ — не перестраховка, а зеркало поведения хозяина: Claude Code «walking up
+    the directory tree from your current working directory» собирает файлы инструкций со
+    всех уровней и грузит их целиком. Значит именно эти файлы и попадают в контекст, и
+    именно их размер имеет значение.
+
+    Одного `cwd` недостаточно, и это ЗАМЕРЕНО: сессия, открытая в подкаталоге worktree
+    (`<worktree>/backend`), теряла ОБА канала разом — `project_root` из конфига указывает
+    на главный checkout, а `cwd` на подкаталог, и файл `<worktree>/CLAUDE.md` не совпадал
+    ни с одним корнем. Молчали и хук правки, и замер на старте, причём молчание
+    неотличимо от «файл в порядке».
+
+    ГРАНИЦА, НАЗВАННАЯ ВСЛУХ: вниз обхода нет. Файлы инструкций во вложенных подкаталогах
+    Claude Code при старте не грузит — он подхватывает их, только когда сессия трогает
+    файл оттуда. Их размер стоит иначе, и стеречь их тем же ориентиром было бы неверно.
     """
     roots, seen = [], set()
-    for root in (cfg.project_root, cwd):
-        if not root:
-            continue
+
+    def add(path: str) -> None:
+        if not path:
+            return
         try:
-            key = os.path.abspath(root)
+            key = os.path.abspath(path)
         except (OSError, ValueError):
-            continue
+            return
         if key not in seen:
             seen.add(key)
             roots.append(key)
+
+    add(cfg.project_root)
+    current = cwd
+    while current:
+        add(current)
+        parent = os.path.dirname(os.path.abspath(current))
+        if parent == os.path.abspath(current):   # дошли до корня файловой системы
+            break
+        current = parent
     return roots
+
+
+def _same_file(path: str, other: str) -> bool:
+    """Один ли это файл. Строгое равенство строк ПЛЮС `os.path.samefile`.
+
+    Второе — не педантизм: файловая система macOS по умолчанию нечувствительна к
+    регистру, и файл, названный `Claude.md`, читается по имени `CLAUDE.md`. Замерено на
+    прежней редакции: хук правки на нём молчал (строки не равны), а замер на старте
+    срабатывал и печатал имя `CLAUDE.md`, которого на диске нет. То есть два канала
+    расходились в показаниях, и оба врали по-своему. `samefile` разрешает и симлинк —
+    правка файла по ссылке правит тот же файл.
+    """
+    if path == other:
+        return True
+    try:
+        return os.path.samefile(path, other)
+    except OSError:
+        return False
+
+
+def _display_path(cfg: MemoryConfig, path: str, rel: str) -> str:
+    """Как назвать файл в сообщении: путь от корня проекта, иначе абсолютный.
+
+    Голого `rel` мало. Корней несколько, и относительные пути у них СОВПАДАЮТ: в
+    worktree-сессии два разных файла дали бы две неразличимые строки «CLAUDE.md …», и
+    человек не понял бы, какой из них чинить. Путь от корня проекта различает их
+    (`CLAUDE.md` против `.claude/worktrees/wt1/CLAUDE.md`), оставаясь коротким.
+    """
+    try:
+        root = os.path.abspath(cfg.project_root)
+        if path == root or path.startswith(root + os.sep):
+            return os.path.relpath(path, root)
+    except (OSError, ValueError):
+        pass
+    return path    # файл вне корня проекта (предок по дереву) — называем полным путём
 
 
 def instructions_oversize(
@@ -381,17 +454,25 @@ def instructions_oversize(
     for root in instructions_roots(cfg, cwd):
         for rel in cfg.instructions_files:
             path = os.path.abspath(os.path.join(root, rel))
-            if only is not None and path != only:
+            if only is not None and not _same_file(path, only):
                 continue
-            if path in seen:        # тот же файл через второй корень — не дублируем
+            if path in seen:        # тот же файл через другой корень — не дублируем
                 continue
             seen.add(path)
             try:
-                size = len(loaded_instructions_text(Path(path).read_text(encoding="utf-8")))
-            except OSError:
+                # errors="replace", а НЕ пропуск файла: `read_text` на файле не в UTF-8
+                # бросает UnicodeDecodeError (это ValueError, не OSError), и он вылетал
+                # наружу — замерено. В хуке правки это уносило с собой уже посчитанный
+                # результат СОСЕДНЕЙ проверки памяти, а на старте сессии — предупреждения
+                # обо ВСЕХ остальных файлах инструкций. Один байт в чужой кодировке
+                # (правка руками, вставка из редактора Windows) не должен глушить стража:
+                # у движка уже был ровно такой прецедент со списком приватных слов.
+                raw = Path(path).read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
                 continue    # файла нет / не читается — не наше дело, молчим
+            size = len(loaded_instructions_text(raw))
             if size > budget:
-                found.append((rel, path, size))
+                found.append((_display_path(cfg, path, rel), path, size))
     return found
 
 
@@ -403,8 +484,24 @@ def _instructions_message(cfg: MemoryConfig, found: list) -> str:
     )
 
 
-def ev_instructions_check(event: dict, cfg: MemoryConfig) -> str:
+def _instructions_nudge_marker(session_id: str, path: str, tmpdir: str) -> Path:
+    """Метка «про этот файл в этой сессии уже сказано» (стабильный sha256, не hash())."""
+    import hashlib
+
+    key = hashlib.sha256(f"{session_id}\x00{path}".encode("utf-8")).hexdigest()[:32]
+    return Path(tmpdir) / f"claude-instructions-size-{key}"
+
+
+def ev_instructions_check(
+    event: dict, cfg: MemoryConfig, session_id: str = "nosess", tmpdir: Optional[str] = None
+) -> str:
     """PostToolUse Write|Edit|MultiEdit: правится ли файл инструкций и не вырос ли он.
+
+    Нудж РАЗОВЫЙ на (сессию, файл). Без этого сессия, которая сокращает раздутый файл
+    десятком правок, получала одно и то же сообщение на каждую — замерено: три правки
+    подряд, три одинаковых текста по 816 знаков. Сессия, режущая файл ради контекста,
+    получала бы в контекст килознаки нашего же ворчания, то есть страж работал бы против
+    собственной цели. Разовость — та же, что у стража модели суб-агентов.
 
     Живёт РЯДОМ с `ev_bloat_check`, а не внутри: та функция построена вокруг инварианта
     «файл лежит в memory_dir» и первым же делом отсекает всё прочее. Файл инструкций лежит
@@ -428,9 +525,18 @@ def ev_instructions_check(event: dict, cfg: MemoryConfig) -> str:
         target = os.path.abspath(file_path)
     except (OSError, ValueError):
         return ""
-    return _instructions_message(
-        cfg, instructions_oversize(cfg, only=target, cwd=str(event.get("cwd") or ""))
-    )
+    found = instructions_oversize(cfg, only=target, cwd=str(event.get("cwd") or ""))
+    if not found:
+        return ""
+    marker = _instructions_nudge_marker(session_id, target, tmpdir or tempfile.gettempdir())
+    if marker.exists():
+        return ""
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("1", encoding="utf-8")
+    except OSError:
+        pass    # метку не записали — скажем ещё раз; лишний нудж дешевле молчания
+    return _instructions_message(cfg, found)
 
 
 def instructions_session_start(cfg: MemoryConfig, cwd: Optional[str] = None) -> str:
@@ -731,7 +837,8 @@ def main() -> None:
             # ИНСТРУКЦИЙ проекта (ev_instructions_check). Регистрация хука одна и та же,
             # второй процесс на каждую правку заводить незачем.
             _emit_post_context("\n".join(
-                p for p in (ev_bloat_check(data, cfg), ev_instructions_check(data, cfg)) if p
+                p for p in (ev_bloat_check(data, cfg),
+                            ev_instructions_check(data, cfg, session_id, tmpdir)) if p
             ))
         elif event_name == "issue-close-watch":
             _emit_post_context(issue_close_watch.record_close(
