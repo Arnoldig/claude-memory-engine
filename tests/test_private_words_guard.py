@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import time
 from pathlib import Path
@@ -391,6 +390,11 @@ def test_attached_shorthand_value_is_inspected(sandbox: Path, tmp_path: Path) ->
     dirty.write_text(f"текст с {SECRET} внутри\n", encoding="utf-8")
     assert _blocks(_run(f"gh issue create --title x -F{dirty}", sandbox))
     assert _blocks(_run(f"gh api repos/o/r/issues -X POST -Fbody=@{dirty}", sandbox))
+    # Форма `-F=файл`: pflag съедает один знак равенства после краткого флага, и `gh` её
+    # принимает. Проверяется вместе с прилипшей, потому что дыра между ними ПЕРЕЕЗЖАЛА:
+    # первая правка ловила `-F=`, но не `-Fфайл`, вторая — ровно наоборот.
+    assert _blocks(_run(f"gh issue create --title x -F={dirty}", sandbox))
+    assert _blocks(_run(f"gh api repos/o/r/issues -X POST -F=body=@{dirty}", sandbox))
 
 
 def test_path_containing_equals_sign_is_still_read(sandbox: Path, tmp_path: Path) -> None:
@@ -405,21 +409,63 @@ def test_path_containing_equals_sign_is_still_read(sandbox: Path, tmp_path: Path
 
 
 @pytest.mark.parametrize("env", [
-    {"PRIVATE_WORDS_GUARD_DEADLINE": "abc"},                  # не число
+    {"PRIVATE_WORDS_GUARD_DEADLINE": "abc"},                   # не число
     {"PRIVATE_WORDS_GUARD_DEADLINE": "99999999999999999999"},  # signal.alarm: OverflowError
-    {"PRIVATE_WORDS_GUARD_DEADLINE": "-5"},                   # отрицательное
-    {"PRIVATE_WORDS_GUARD_TEST_SLOW": "abc"},                 # не число
+    {"PRIVATE_WORDS_GUARD_DEADLINE": "-5"},                    # отрицательное
+    {"PRIVATE_WORDS_GUARD_TEST_SLOW": "abc"},                  # не число
 ])
-def test_garbage_in_env_knobs_does_not_disable_the_guard(sandbox: Path, env: dict) -> None:
-    """Мусор в переменной окружения не имеет права снять стража.
+def test_garbage_in_env_knobs_does_not_kill_the_guard(sandbox: Path, env: dict) -> None:
+    """Мусор в переменной окружения не имеет права уронить процесс.
 
     Непойманное исключение — это код 1, а код 1 НЕ БЛОКИРУЕТ. То есть опечатка в ручке
-    молча отключала бы защиту целиком: ровно тот дефект, что чинится выше про не-UTF8
-    в списке слов, воспроизведённый внутри его же починки. Найдено ревью diff, замерено:
-    все четыре входа давали код 1 и пропускали приватное слово."""
+    молча снимала бы защиту целиком: ровно тот дефект, что чинится выше про не-UTF8
+    в списке слов, воспроизведённый внутри его же починки. Замерено: все четыре входа
+    давали код 1 и пропускали приватное слово."""
     p = _run(f'gh issue create --title x --body "{SECRET}"', sandbox, env)
     assert p.returncode == 2, f"страж умер вместо блокировки: код={p.returncode}"
     assert "приватного списка" in p.stderr
+
+
+def test_negative_deadline_does_not_disable_the_watchdog(sandbox: Path) -> None:
+    """ОТДЕЛЬНО от теста выше, и это не дублирование.
+
+    Тот проверяет, что процесс не падает, но приватное слово в нём ловится СПИСКОМ СЛОВ —
+    значит ветка таймера там не исполняется вовсе, и он остался бы зелёным при полностью
+    выключенном таймере. Ревю поймало ровно это: тест давал ложную уверенность.
+
+    Здесь текст ЧИСТЫЙ, поэтому сработать может только таймер. Замер до правки: «abc»
+    давало откат к умолчанию и блокировку, а «-5» молча снимало таймер — две одинаково
+    вероятные опечатки с ПРОТИВОПОЛОЖНЫМ исходом, защита и её отсутствие."""
+    p, secs = _timed('gh issue create --title x --body "безобидный текст"', sandbox,
+                     {"PRIVATE_WORDS_GUARD_DEADLINE": "-5",
+                      "PRIVATE_WORDS_GUARD_TEST_SLOW": "8"})
+    assert p.returncode == 2, "опечатка в дедлайне выключила таймер — молчаливый обход"
+    assert "за отведённое время" in p.stderr
+    assert secs < 8, f"таймер ответил к {secs:.1f} с — позже хук убьёт среда"
+
+
+def test_explicit_zero_disables_the_watchdog(sandbox: Path) -> None:
+    """ЛАЗЕЙКА, названная вслух: ТОЧНОЕ «0» выключает таймер осознанно.
+
+    Отличается от мусора именно точностью написания — иначе опечатка и намерение
+    неразличимы. Тест на ПРОПУСК: без него «0» мог бы незаметно перестать работать."""
+    p, _ = _timed('gh issue create --title x --body "безобидный текст"', sandbox,
+                  {"PRIVATE_WORDS_GUARD_DEADLINE": "0",
+                   "PRIVATE_WORDS_GUARD_TEST_SLOW": "1"})
+    assert p.returncode == 0 and not p.stderr.strip()
+
+
+def test_huge_deadline_is_capped_below_consumer_hook_timeout(sandbox: Path) -> None:
+    """Ручка не должна позволять задрать дедлайн ВЫШЕ таймаута хука: тогда исход снова
+    определяет среда, то есть пропуск. Закрывает сразу два замера: дедлайн 30 при сне 9
+    давал код 0, а огромное число роняло `signal.alarm` с OverflowError — то есть код 1,
+    тоже пропуск. Верхняя граница чинит оба разом."""
+    p, secs = _timed('gh issue create --title x --body "безобидный текст"', sandbox,
+                     {"PRIVATE_WORDS_GUARD_DEADLINE": "99999999999999999999",
+                      "PRIVATE_WORDS_GUARD_TEST_SLOW": "12"})
+    assert p.returncode == 2, "дедлайн выше таймаута хука = пропуск, а не блокировка"
+    assert "за отведённое время" in p.stderr
+    assert secs < 11, f"таймер ответил к {secs:.1f} с — на таймауте 10 с это пропуск"
 
 
 def test_inline_key_value_form_is_not_treated_as_a_path(sandbox: Path) -> None:

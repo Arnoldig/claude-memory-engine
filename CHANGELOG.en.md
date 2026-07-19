@@ -36,8 +36,14 @@ Notable changes to this project are listed here. The format follows [Keep a Chan
   2. **The one-letter bypass was closed and a one-space bypass left open.** The first attempt required a separator between flag and value, so it missed the attached shorthand `-Ffile`, `-Fkey=@file`, and `--field` — the documented long form of `-F` in `gh api`. Measured: three of four valid `gh` invocations published the file contents unchecked.
   3. **The fix made the guard WEAKER than it had been.** The `key=@file` parsing applied to EVERY flag, so an ordinary path containing an equals sign (`dir=ty.md`) stopped being read — what the previous version checked, the new one passed. Parsing is now scoped to the flags where that form exists.
 
-  All three are pinned by tests and confirmed by measurement against the earlier versions. Lesson for the suite: tests for the new behaviour are not enough — a measurement against what came before is also required, or a regression inside a fix looks like success.
-- +24 tests (623 vs 599).
+  A second review of those same fixes found FOUR more of the same class — which is itself the lesson: one pass is not enough.
+  4. **The hole MOVED rather than closed.** The first attempt caught `-F=file` but not `-Ffile`; the second, exactly the reverse. `pflag` strips one equals sign after a shorthand flag, and `gh` accepts both spellings. Closed with a single `=?`, and both forms are pinned by one test — precisely because apart they had already drifted.
+  5. **Two equally likely typos produced OPPOSITE outcomes.** `abc` in the deadline fell back to the default and protected; `-5` silently removed the timer. Only the EXACT string "0" disables it now — intent must differ from a typo in spelling.
+  6. **A test gave false assurance.** The "garbage in a knob does not kill the guard" check caught the private word via the WORD LIST, so it never exercised the timer branch and would have stayed green with the watchdog fully off. A paired check on CLEAN text was added, where only the timer can fire.
+  7. **One non-2 exit remained after a publication was recognised:** a path containing a NUL byte raises `ValueError` from `os.stat`, not `OSError`. Hard to reach, but the header's invariant may not have loopholes — they are never found one at a time.
+
+  All seven are pinned by tests and confirmed by measurement against the earlier versions. Lesson for the suite: tests for the new behaviour are not enough — a measurement against what came before is also required, or a regression INSIDE a fix looks like success. And separately: a green test is worth exactly as much as the proof that it goes red on broken code.
+- +27 tests (626 vs 599).
 
 ## [0.15.0] — 2026-07-18
 
