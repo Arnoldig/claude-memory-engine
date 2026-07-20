@@ -4,6 +4,22 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **A wrong-kind value in the config no longer switches the engine off in silence** ([#21](https://github.com/Arnoldig/claude-memory-engine/issues/21)). A number where a list belongs (`"topic_order": 42`) crashed config loading itself, and because hooks are fail-open the crash turned into exit 0: the engine went dark ENTIRELY and without a word, so "switched off by a typo" looked exactly like "nothing to suggest". Measurement found twice as many cases as the issue described: some values survived loading and crashed the event below it, while the self-check cheerfully reported "all good".
+
+  The remedy is general rather than per-field: the expected kind is derived from the dataclass's own declaration, so a field added tomorrow is covered without touching the check. A wrong-kind value is dropped, the default takes effect, and the field name goes into a self-check warning — not behind `verbose`, which would be silence again. The direction follows the cost of being wrong: losing one setting and saying so is cheaper than losing the whole session's memory and saying nothing. New message: `self_check.mistyped_key`.
+
+- **The closing-form reference gained a third axis — the CASE of the keyword** ([#20](https://github.com/Arnoldig/claude-memory-engine/issues/20)). The lag guard has an escape hatch: "every probe missed = a legitimate full replacement". While all probes shared one case, a copy of the default that had lost its case-insensitivity missed all of them — so the guard stayed silent about a pattern recognising a third of GitHub's documented forms. The axis separates the two situations: a pattern that lagged behind versus one replaced wholesale.
+
+- **A probe's expected answer is no longer spelled out as a number in two places.** The identifier sat as a literal both in the probe templates and in the comparison next to the threshold. Two copies of one value drift apart silently: a trial run showed that adding an axis makes the comparison measure the wrong thing — the default starts complaining about itself while masking the real gap. The identifier is now declared once (`GITHUB_CLOSE_PROBE_ID`), the expectation is read from there, and the probe count is written nowhere as a number — it is computed from the axes.
+
+- **The destructive-git-command guard now knows every spelling of the force flag.** Five commands carried uncommitted work away in silence: the long form on `clean` (bare, with the directories flag, and with a path) and fused short flags on `checkout`. The spellings had drifted apart in mirror image — one command knew fused flags but not the long form, its neighbour exactly the reverse — because each row of the list spelled them out on its own. They now come from a single constant. Found by checking the consequence: the command is executed in a throwaway repository and counts as dangerous when less uncommitted work remains afterwards, so nobody rewrites the list of forms by hand.
+
+### Boundaries stated out loud
+- The gap described in [#20](https://github.com/Arnoldig/claude-memory-engine/issues/20) — a slug after the colon — is **a measured decision, not a defect**: a branch accepting any identifier after a colon produced false closures on Conventional Commits (measured against real history). A slug is an engine convention, not a GitHub form, and the library is not entitled to demand it of someone else's pattern.
+
 ## [0.18.0] — 2026-07-19
 
 ### Added
