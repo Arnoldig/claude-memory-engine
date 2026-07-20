@@ -382,6 +382,11 @@ def warnings(cfg: MemoryConfig = None, verbose: bool = False) -> List[str]:
     out += [msg(cfg, "self_check.empty_topic_order")
             for code in topic_order_issues(cfg) if code == "empty"]
     out += settings_issues(cfg)
+    # Не под `verbose`: значение отброшено, движок работает на дефолте, и без жалобы
+    # в обычном режиме это ровно то молчание, ради которого заведена заявка #21 —
+    # владелец уверен, что настройка действует, а она не действует.
+    out += [msg(cfg, "self_check.mistyped_key", field=f)
+            for f in (getattr(cfg, "mistyped_config_keys", ()) or ())]
     if verbose:
         flagged = {k for k, _ in typo_key_issues(cfg)}
         rest = [k for k in (getattr(cfg, "unknown_config_keys", ()) or ())
