@@ -185,16 +185,25 @@ def close_pattern_lag_issues(cfg: MemoryConfig) -> List[Tuple[str, List[str]]]:
         # число в JSON доезжает до `re.compile` как есть. Без этого перехвата падал бы
         # весь `warnings()` разом — то есть человек терял бы ВСЕ жалобы самодиагностики
         # из-за одной описки в одном поле.
-    from .stop_check import GITHUB_CLOSE_KEYWORDS, GITHUB_CLOSE_SYNTAXES, extract_closed_task
+    from .stop_check import (GITHUB_CLOSE_CASES, GITHUB_CLOSE_KEYWORDS,
+                             GITHUB_CLOSE_PROBE_ID, GITHUB_CLOSE_SYNTAXES,
+                             extract_closed_task)
 
+    # Перечень зондов = произведение ОБЪЯВЛЕННЫХ осей: слово × написание × регистр.
+    # Ось, добавленная в эталон завтра, попадает сюда сама — списка, ведомого руками,
+    # здесь нет намеренно: он бы устарел молча, а «не проверили» неотличимо от «прошло».
     probes = [
-        (f"{word}{suffix}", template.format(word=word))
+        (f"{case(word)}{suffix}",
+         template.format(word=case(word), id=GITHUB_CLOSE_PROBE_ID))
         for word in GITHUB_CLOSE_KEYWORDS
         for suffix, template in GITHUB_CLOSE_SYNTAXES
+        for _case_name, case in GITHUB_CLOSE_CASES
     ]
+    # Ожидание берём у эталона, а не литералом рядом: две копии одной величины
+    # расходятся молча, и сверка начинает мерить не то, что порождает зонды.
     missing = [
         label for label, text in probes
-        if extract_closed_task(f"feat: {text}", pattern) != "42"
+        if extract_closed_task(f"feat: {text}", pattern) != GITHUB_CLOSE_PROBE_ID
     ]
     if not missing or len(missing) == len(probes):
         return []  # покрыто целиком ИЛИ заменено целиком — оба случая законны
@@ -382,6 +391,11 @@ def warnings(cfg: MemoryConfig = None, verbose: bool = False) -> List[str]:
     out += [msg(cfg, "self_check.empty_topic_order")
             for code in topic_order_issues(cfg) if code == "empty"]
     out += settings_issues(cfg)
+    # Не под `verbose`: значение отброшено, движок работает на дефолте, и без жалобы
+    # в обычном режиме это ровно то молчание, ради которого заведена заявка #21 —
+    # владелец уверен, что настройка действует, а она не действует.
+    out += [msg(cfg, "self_check.mistyped_key", field=f)
+            for f in (getattr(cfg, "mistyped_config_keys", ()) or ())]
     if verbose:
         flagged = {k for k, _ in typo_key_issues(cfg)}
         rest = [k for k in (getattr(cfg, "unknown_config_keys", ()) or ())

@@ -114,16 +114,21 @@ def test_conftest_pattern_covers_all_github_keywords() -> None:
     from claude_memory.stop_check import extract_closed_task
     from conftest import RU_EN_CLOSE_PATTERN
 
-    from claude_memory.stop_check import GITHUB_CLOSE_KEYWORDS, GITHUB_CLOSE_SYNTAXES
+    from claude_memory.stop_check import (GITHUB_CLOSE_CASES, GITHUB_CLOSE_KEYWORDS,
+                                          GITHUB_CLOSE_PROBE_ID, GITHUB_CLOSE_SYNTAXES)
 
-    # Обе координаты эталона: слово × написание. Копия, отставшая по НАПИСАНИЮ, — тот же
-    # класс, что копия, отставшая по слову, и сюита не должна её пропускать.
+    # ВСЕ координаты эталона: слово × написание × регистр. Перечень строится по осям,
+    # объявленным модулем, поэтому ось, добавленная позже, попадает сюда сама. Копия,
+    # отставшая по любой из координат, — один и тот же класс, и сюита не вправе её
+    # пропускать: тесты, идущие на устаревшем правиле, зеленеют мимо реальности.
     for word in GITHUB_CLOSE_KEYWORDS:
         for _suffix, template in GITHUB_CLOSE_SYNTAXES:
-            probe = template.format(word=word)
-            assert extract_closed_task(f"feat: {probe}", RU_EN_CLOSE_PATTERN) == "42", (
-                f"conftest-шаблон не узнаёт `{probe}` — тесты гоняются на устаревшем правиле"
-            )
+            for _case_name, case in GITHUB_CLOSE_CASES:
+                probe = template.format(word=case(word), id=GITHUB_CLOSE_PROBE_ID)
+                assert extract_closed_task(
+                    f"feat: {probe}", RU_EN_CLOSE_PATTERN) == GITHUB_CLOSE_PROBE_ID, (
+                    f"conftest-шаблон не узнаёт `{probe}` — тесты гоняются на устаревшем правиле"
+                )
     # локализованная ветка — то, ради чего копия вообще существует
     assert extract_closed_task("#widget-7 закрыт", RU_EN_CLOSE_PATTERN) == "widget-7"
 

@@ -113,6 +113,7 @@ DEFAULT_MESSAGES = {
     "self_check.report_note_derived": "  (derived, not confirmed — no lessons found there)",
     "self_check.report_note_explicit": "  (set via autoMemoryDirectory in {scope})",
     "self_check.typo_key": "[config self-check] unknown config key `{key}`, very close to the known key `{near}` — a typo, or a key from a newer engine version? Unknown keys are dropped silently, so if this is a typo your setting is NOT in effect and the English default is being used instead. Rename it to `{near}`, or ignore this if the key is intentional.",
+    "self_check.mistyped_key": "[config self-check] `{field}` holds a value of the wrong kind (a number where a list belongs, a string where a number belongs, and so on). The value was dropped and the built-in default is in force — the setting you wrote is NOT active. Fix the value's type in the config.",
     "self_check.unknown_keys_info": "[config self-check] other keys the engine does not know (dropped; fine if they target a newer version or another tool): {keys}",
     "retrieve.verbose_keyword_item": "{s:5} | {b}\n        {d}",
     "retrieve.verbose_no_matches": "   (no matches)",

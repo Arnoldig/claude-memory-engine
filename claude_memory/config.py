@@ -363,6 +363,14 @@ class MemoryConfig:
     # Заполняется только `load()`; значение из JSON игнорируется (см. `_coerce`).
     unknown_config_keys: Tuple[str, ...] = ()
 
+    # — служебное, НЕ задаётся человеком: ключи, значение которых оказалось чужого рода
+    # (число вместо списка, строка вместо числа). Значение отброшено, действует дефолт.
+    # Помним по той же причине, что и неизвестные ключи: без этого «настройка испорчена
+    # опиской» неотличимо от «настройку не задавали», а раньше было хуже — чужой род
+    # ронял загрузку целиком, и движок выключался молча (заявка #21).
+    # Заполняется только `load()`; значение из JSON игнорируется (см. `_coerce`).
+    mistyped_config_keys: Tuple[str, ...] = ()
+
     def __post_init__(self) -> None:
         """Приводит к каноническому виду поля, где описка ОДНОЗНАЧНА по намерению.
 
@@ -419,6 +427,58 @@ _TUPLE_FIELDS = {
 }
 
 
+def _field_kind(name: str):
+    """Род поля — из его собственного объявления, а не из списка, ведомого руками.
+
+    Список полей, выписанный отдельно, устаревает молча: поле, добавленное завтра,
+    в него не попадёт, и проверка обойдёт его стороной. Здесь род берётся у самого
+    датакласса, поэтому новое поле оказывается под защитой без правки этого места.
+    """
+    if name in _TUPLE_FIELDS or name == "topic_order":
+        return list                      # в JSON это список, дефолт бывает и None
+    f = MemoryConfig.__dataclass_fields__.get(name)  # type: ignore[attr-defined]
+    if f is None:
+        return None
+    default = f.default
+    if isinstance(default, bool):
+        return bool
+    if isinstance(default, int):
+        return int
+    if isinstance(default, str):
+        return str
+    if isinstance(default, dict) or name == "messages":
+        return dict
+    return None                          # род не объявлен — требовать нечего
+
+
+def _drop_mistyped(out: dict):
+    """Отбрасывает значения чужого рода, ЗАПОМИНАЯ их имена.
+
+    Направление выбрано по цене ошибки. Раньше чужой род ронял `load()`, а хук
+    fail-open превращал падение в выход нулём: движок выключался целиком и молча —
+    «выключен опиской» выглядело как «подсказывать нечего» (заявка #21). Отбросить
+    одно значение и сказать об этом дешевле, чем потерять всю память сессии.
+    Молчания при этом не прибавляется: имя поля уходит в `mistyped_config_keys`,
+    и о нём говорит `self_check`.
+    """
+    mistyped = []
+    for k in sorted(out):
+        kind = _field_kind(k)
+        if kind is None or out[k] is None:
+            continue                     # род не объявлен либо `null` = «не задано»
+        v = out[k]
+        ok = isinstance(v, (list, tuple)) if kind is list else (
+            isinstance(v, bool) if kind is bool else
+            (isinstance(v, int) and not isinstance(v, bool)) if kind is int else
+            isinstance(v, kind)
+        )
+        if not ok:
+            mistyped.append(k)
+    for k in mistyped:
+        out.pop(k)
+    return out, tuple(mistyped)
+
+
 def _coerce(data: dict) -> dict:
     """Готовит dict из JSON к передаче в MemoryConfig: list→tuple, topic_order→tuple пар.
 
@@ -429,7 +489,7 @@ def _coerce(data: dict) -> dict:
     поле перебирают). Зазор был общий для всех `_TUPLE_FIELDS`, поэтому и закрыт целиком:
     точечная починка одной темы означала бы, что следующее поле повторит ту же историю.
     """
-    out = dict(data)
+    out, mistyped = _drop_mistyped(dict(data))
     if out.get("topic_order") is None:
         out.pop("topic_order", None)
     else:
@@ -450,9 +510,11 @@ def _coerce(data: dict) -> dict:
     # смог бы подделать собственный отчёт о своих же опечатках.
     known = {f for f in MemoryConfig.__dataclass_fields__}  # type: ignore[attr-defined]
     out.pop("unknown_config_keys", None)
+    out.pop("mistyped_config_keys", None)
     dropped = tuple(sorted(k for k in out if k not in known))
     coerced = {k: v for k, v in out.items() if k in known}
     coerced["unknown_config_keys"] = dropped
+    coerced["mistyped_config_keys"] = mistyped
     return coerced
 
 
