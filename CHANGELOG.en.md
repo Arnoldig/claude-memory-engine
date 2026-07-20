@@ -4,7 +4,7 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.19.0] — 2026-07-20
 
 ### Changed
 - **The publication guard now works from an ALLOW list** ([#18](https://github.com/Arnoldig/claude-memory-engine/issues/18)). It used to enumerate the forbidden: it looked for private words in the command text. Measured 2026-07-20 against the live guard: of 20 ways to send text outward, **11 slipped past** — the content was assembled AFTER the moment of checking (command and variable substitution, backticks, pipes, input redirection, process substitution). A gap in a list of forbidden things is invisible and irreversible: what is published cannot be recalled.
