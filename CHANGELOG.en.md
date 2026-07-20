@@ -4,7 +4,7 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.20.0] — 2026-07-20
 
 ### Added
 - **A snapshot of uncommitted work before any command that could carry it away.** The destructive-git guard enumerates the dangerous, but work is also lost outside git: `rm -rf`, `sed -i`, redirection into a file, a script. A list cannot close that — bypasses are found faster than patterns are written (measured: 11 shell bypasses out of 24). The snapshot changes the framing: instead of "prevent the loss", "make the loss recoverable". Changes are stored in a git ref; the working tree is left untouched. To recover: `git show <ref>:<path>` or `git stash apply <ref>`; to list: `git for-each-ref refs/claude-snapshots`. The last ten are kept — an unbounded list becomes unreadable, and then the needed snapshot cannot be found at all. The boundary is stated out loud: only tracked changes are captured.
