@@ -170,19 +170,33 @@ def test_prepush_blocks_and_passes(tmp_path: Path) -> None:
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "первый"], check=True)
 
-    def run_hook():
+    def run_hook(stdin_text=""):
         return subprocess.run(["bash", str(repo / ".githooks" / "pre-push"), "origin", "url"],
-                              cwd=str(repo), capture_output=True, text=True)
+                              input=stdin_text, cwd=str(repo), capture_output=True, text=True)
 
-    clean = run_hook()
+    def sha(ref="HEAD"):
+        return subprocess.run(["git", "-C", str(repo), "rev-parse", ref],
+                              capture_output=True, text=True).stdout.strip()
+
+    def push_input(base="0" * 40):
+        """Хуку положено получать список ссылок на стандартный ввод — так его зовёт git.
+
+        Прежняя редакция звала хук БЕЗ ввода, и он проверял рабочее дерево вместо
+        уходящих коммитов. На такой настройке зелёными оставались оба дефекта:
+        и посторонний выход по отсутствию файла пакета, и слепота к истории.
+        """
+        return f"refs/heads/main {sha()} refs/heads/main {base}\n"
+
+    base_sha = sha()
+    clean = run_hook(push_input(base_sha))
     assert clean.returncode == 0, f"чистый репозиторий обязан проходить: {clean.stderr[:200]}"
 
     (repo / "readme.md").write_text(f"внутри {SECRET}\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "правка"], check=True)
-    dirty = run_hook()
-    assert dirty.returncode == 1, "приватное слово в файле обязано останавливать push"
-    assert "private-words" in dirty.stderr and "readme.md" in dirty.stderr
+    dirty = run_hook(push_input(base_sha))
+    assert dirty.returncode == 1, "приватное слово в уходящем коммите обязано останавливать push"
+    assert "private-words" in dirty.stderr
 
 
 # ── Шаблоны: ключи, почта, телефон (то, что списком слов не выражается) ─────
