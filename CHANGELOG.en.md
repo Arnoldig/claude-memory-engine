@@ -6,6 +6,15 @@ Notable changes to this project are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Changed
+- **The publication guard now works from an ALLOW list** ([#18](https://github.com/Arnoldig/claude-memory-engine/issues/18)). It used to enumerate the forbidden: it looked for private words in the command text. Measured 2026-07-20 against the live guard: of 20 ways to send text outward, **11 slipped past** — the content was assembled AFTER the moment of checking (command and variable substitution, backticks, pipes, input redirection, process substitution). A gap in a list of forbidden things is invisible and irreversible: what is published cannot be recalled.
+
+  Three forms are now allowed, all of them readable in full BEFORE execution: a literal body string, a file with a literal path, and api fields with literal values. Anything else in a publishing command is blocked with an explanation of what to rewrite. The cost of being wrong is inverted: a gap in the list now yields a visible false alarm instead of an invisible leak.
+
+  The "cannot be checked" test is NOT a shell parse: parsing someone else's syntax with a regex was already tried, produced seven ways to disarm the guard, and was reverted. The test is deliberately blunt, and therefore not steerable from outside — the presence of any character able to produce or redirect text. Ordinary work is untouched: the guard only engages once a command is recognised as publishing, so pipes, substitutions and chains in normal commands pass freely (pinned by dedicated pass-through tests).
+
+  The escape hatch for an agreed send is the comment `# согласовано с владельцем` in the command itself: visible in history, unlike a silent pass.
+
 ### Fixed
 - **A wrong-kind value in the config no longer switches the engine off in silence** ([#21](https://github.com/Arnoldig/claude-memory-engine/issues/21)). A number where a list belongs (`"topic_order": 42`) crashed config loading itself, and because hooks are fail-open the crash turned into exit 0: the engine went dark ENTIRELY and without a word, so "switched off by a typo" looked exactly like "nothing to suggest". Measurement found twice as many cases as the issue described: some values survived loading and crashed the event below it, while the self-check cheerfully reported "all good".
 

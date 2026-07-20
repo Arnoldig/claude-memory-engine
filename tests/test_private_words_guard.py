@@ -70,7 +70,16 @@ def test_hooks_are_present_and_executable() -> None:
     'cd /tmp && gh issue comment 8 --body "{w}"',
 ])
 def test_blocks_publishing_channels(sandbox: Path, template: str) -> None:
-    assert _blocks(_run(template.format(w=SECRET), sandbox))
+    """Публикующий канал со словом из списка обязан быть остановлен.
+
+    Проверяется ФАКТ остановки, а не её причина: с переходом на белый список (#18)
+    команда с цепочкой или подстановкой блокируется раньше — по непроверяемости, —
+    и текст объяснения у неё другой. Требовать здесь конкретную формулировку значило
+    бы сделать тест придирчивее контракта: наружу в обоих случаях не ушло ничего.
+    """
+    p = _run(template.format(w=SECRET), sandbox)
+    assert p.returncode == 2 and p.stderr.strip(), (
+        f"публикация не остановлена: код={p.returncode}")
 
 
 @pytest.mark.parametrize("command", [
@@ -329,11 +338,21 @@ def test_oversized_body_file_blocks(sandbox: Path, tmp_path: Path) -> None:
     assert p.returncode == 2 and "проверить не удалось" in p.stderr
 
 
-def test_missing_body_file_still_passes_through(sandbox: Path, tmp_path: Path) -> None:
-    """ТЕСТ НА ПРОПУСК. Несуществующий файл — не наша забота, пусть решает `gh`: он и сам
-    упадёт, публикации не будет. Превентивная блокировка здесь была бы шумом."""
+def test_missing_body_file_is_blocked(sandbox: Path, tmp_path: Path) -> None:
+    """ГРАНИЦА ПЕРЕПИСАНА ОСОЗНАННО (#18, 2026-07-20).
+
+    Прежняя редакция закрепляла пропуск с доводом «файла нет — пусть решает `gh`,
+    он сам упадёт». Довод неполон: мы не знаем, чего нет — файла или прав на него, —
+    а между проверкой и запуском команды файл может появиться. Через эту же ветку
+    проходила подстановка процесса: пути `<(…)` не существует, `os.stat` падал, страж
+    пропускал, а команда прекрасно работала и публиковала.
+
+    Цена новой строгости почти нулевая: команда с несуществующим файлом всё равно не
+    сработает, поэтому блокировка не отнимает у человека ничего, кроме одного
+    внятного сообщения вместо невнятной ошибки `gh`.
+    """
     p = _run(f"gh issue create --title x --body-file {tmp_path / 'нет-такого.md'}", sandbox)
-    assert p.returncode == 0 and not p.stderr.strip()
+    assert p.returncode == 2 and "проверить не удалось" in p.stderr
 
 
 def test_non_utf8_word_list_does_not_disable_the_guard(tmp_path: Path) -> None:
