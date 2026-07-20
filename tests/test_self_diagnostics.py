@@ -326,11 +326,19 @@ def test_lag_caught_when_only_spelling_is_behind(cfg) -> None:
     написаниях 9 промахов из 18 совпадали с этим числом — страж принимал отставшую копию
     за «законную полную замену» и МОЛЧАЛ, а настоящую замену наоборот обвинял. Проверка
     начинала работать наоборот, ровно тем молчаливым способом, против которого заведена."""
+    from claude_memory.stop_check import (GITHUB_CLOSE_CASES, GITHUB_CLOSE_KEYWORDS)
+
     old_default = (r"(?i)(?<![\w-])(?:clos(?:e|es|ed)|fix(?:es|ed)?|resolv(?:e|es|ed))"
                    r"\s+#([\w-]+)")
     missing = SC.close_pattern_lag_issues(replace(cfg, task_close_pattern=old_default))[0][1]
-    assert missing == ["Close:", "Closes:", "Closed:", "Fix:", "Fixes:", "Fixed:",
-                       "Resolve:", "Resolves:", "Resolved:"]
+    # Проверяем СВОЙСТВО промахов, а не переписываем их список: рукописный перечень
+    # расходится с эталоном при добавлении оси — и тогда тест краснеет не потому, что
+    # что-то сломалось, а потому что отстал сам. Свойство переживает рост осей.
+    assert missing, "отставание по написанию обязано быть названо"
+    assert all(m.endswith(":") for m in missing), (
+        f"промахнуться должна ровно двоеточная форма, а промахи: {missing}")
+    assert len(missing) == len(GITHUB_CLOSE_KEYWORDS) * len(GITHUB_CLOSE_CASES), (
+        "двоеточная форма обязана промахнуться во всех словах и всех регистрах")
 
 
 def test_full_replacement_still_silent_with_two_syntaxes(cfg) -> None:
@@ -386,5 +394,7 @@ def test_reference_holds_only_documented_spellings() -> None:
     больше, чем документирует GitHub, библиотека не вправе."""
     from claude_memory.stop_check import GITHUB_CLOSE_SYNTAXES
     templates = [t for _, t in GITHUB_CLOSE_SYNTAXES]
-    assert templates == ["{word} #42", "{word}: #42"]
+    # Идентификатор в шаблоне — подстановка `{id}`, а не число: он задан один раз
+    # в `GITHUB_CLOSE_PROBE_ID`, и сверка ожидания берёт его оттуда же.
+    assert templates == ["{word} #{id}", "{word}: #{id}"]
     assert all(":#" not in t for t in templates)

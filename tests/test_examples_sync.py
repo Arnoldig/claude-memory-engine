@@ -176,7 +176,8 @@ def test_example_close_pattern_knows_all_nine_github_keywords() -> None:
     узнавать часть форм закрытия. Именно неполный список форм и был багом: шесть слов из
     девяти, «не узнал» неотличимо от «закрытия не было»."""
     from claude_memory.stop_check import (
-        GITHUB_CLOSE_KEYWORDS, GITHUB_CLOSE_SYNTAXES, extract_closed_task)
+        GITHUB_CLOSE_CASES, GITHUB_CLOSE_KEYWORDS, GITHUB_CLOSE_PROBE_ID,
+        GITHUB_CLOSE_SYNTAXES, extract_closed_task)
 
     pattern = _load(ROOT / "examples" / "claude-memory.config.json")["task_close_pattern"]
     # Перечень ИМПОРТИРУЕТСЯ, а не копируется: копия эталона замерзает в день копирования
@@ -184,7 +185,9 @@ def test_example_close_pattern_knows_all_nine_github_keywords() -> None:
     # Обе координаты — слово и написание (заявка #13, 0.15.0).
     for word in GITHUB_CLOSE_KEYWORDS:
         for _suffix, template in GITHUB_CLOSE_SYNTAXES:
-            probe = template.format(word=word)
-            assert extract_closed_task(f"feat: {probe}", pattern) == "42", (
-                f"пример не узнаёт форму закрытия `{probe}` — страж промолчит на ней молча"
-            )
+            for _case_name, case in GITHUB_CLOSE_CASES:
+                probe = template.format(word=case(word), id=GITHUB_CLOSE_PROBE_ID)
+                assert extract_closed_task(
+                    f"feat: {probe}", pattern) == GITHUB_CLOSE_PROBE_ID, (
+                    f"пример не узнаёт форму закрытия `{probe}` — страж промолчит на ней молча"
+                )
