@@ -4,6 +4,20 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **A snapshot of uncommitted work before any command that could carry it away.** The destructive-git guard enumerates the dangerous, but work is also lost outside git: `rm -rf`, `sed -i`, redirection into a file, a script. A list cannot close that — bypasses are found faster than patterns are written (measured: 11 shell bypasses out of 24). The snapshot changes the framing: instead of "prevent the loss", "make the loss recoverable". Changes are stored in a git ref; the working tree is left untouched. To recover: `git show <ref>:<path>` or `git stash apply <ref>`; to list: `git for-each-ref refs/claude-snapshots`. The last ten are kept — an unbounded list becomes unreadable, and then the needed snapshot cannot be found at all. The boundary is stated out loud: only tracked changes are captured.
+
+### Changed
+- **The destructive-git guard now works from an ALLOW list.** The deny list leaked three times running: missed flag spellings, then five verbs absent entirely, then eleven shell bypasses out of twenty-four. That is a property of the approach, not an oversight: a list of the dangerous grows after every new loss, always in hindsight. An allow list is finite by construction — measurement over session logs found 8431 git invocations across 85 verbs, twenty of which cover 90% of the work.
+
+  The real gain is the direction of a parsing failure: "did not parse" used to mean pass, which is where the variable-substitution bypasses came from; it now means block. `checkout` is disambiguated by asking git itself: a branch passes, a path is blocked, ambiguity counts as loss. The cost was measured against 600 real commands (1498 invocations): 22 blocked, 1.5%, every one of them justified.
+
+### Fixed
+- **The guard did not engage where the most valuable thing was being lost.** It asks git about uncommitted work, and git does not report ignored files — so the tree looked clean. A clean-with-ignored command destroyed the private-words list, which lives outside git deliberately and cannot be restored; the leak protection went dark along with it.
+- **Commands that disarm the protection slipped past.** They lose nothing themselves, so the "is there anything to lose" check passed them: writing `core.hooksPath` disables the pre-push check, an alias substitutes the verb, `core.pager` and `diff.external` execute an arbitrary command — including via an innocuous-looking `git -c … log`. These are now blocked regardless of tree state; reading config is untouched.
+
 ## [0.19.0] — 2026-07-20
 
 ### Changed

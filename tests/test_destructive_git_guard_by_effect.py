@@ -141,3 +141,68 @@ def test_читающие_команды_отложенного_проходят
     (репо / "f.txt").write_text("снова правка\n")      # дерево ГРЯЗНОЕ: тут и шумел страж
     for cmd in ("git stash list", "git stash show", "git stash show -p"):
         assert not _страж_блокирует(cmd, str(репо)), f"{cmd} ничего не теряет"
+
+
+# ── Игнорируемые файлы: их не видит обычная проверка дерева ──────────────────
+# `.claude/private-words.txt` лежит вне git намеренно и невосстановим. Команда
+# очистки с ключом игнорируемых уносит его при «чистом» дереве, а страж не
+# включается вовсе: он спрашивает git о несохранённом, а тот игнорируемое не
+# показывает. Замерено 2026-07-20: файл уничтожен, восстановить нечем, и вместе
+# с ним молча выключается защита от утечки в публичный репозиторий.
+
+def _с_игнорируемым(корень: Path) -> Path:
+    корень.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(корень)], check=True)
+    (корень / ".gitignore").write_text("секретное/\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(корень), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(корень), "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-qm", "init"], check=True)
+    (корень / "секретное").mkdir()
+    (корень / "секретное" / "слова.txt").write_text("приватное\n", encoding="utf-8")
+    return корень
+
+
+def test_очистка_игнорируемых_блокируется(tmp_path) -> None:
+    репо = _с_игнорируемым(tmp_path / "игн")
+    чисто = subprocess.run(["git", "-C", str(репо), "status", "--porcelain"],
+                           capture_output=True, text=True).stdout
+    assert not чисто.strip(), "по обычной проверке дерево чистое — в этом и суть"
+
+    assert _страж_блокирует("git clean -xfd", str(репо)), (
+        "команда уносит игнорируемые файлы, а они невосстановимы")
+
+
+def test_очистка_без_ключа_игнорируемых_не_трогает_их(tmp_path) -> None:
+    """ПАРНЫЙ на пропуск: без ключа игнорируемых команда их не касается,
+    а дерево чистое — блокировать нечего."""
+    репо = _с_игнорируемым(tmp_path / "игн2")
+    assert not _страж_блокирует("git clean -fd", str(репо))
+
+
+# ── Запись настроек: рычаг снятия ОСТАЛЬНЫХ стражей ─────────────────────────
+# `core.hooksPath` отключает проверку перед отправкой, алиас подменяет глагол,
+# `core.pager`/`diff.external` выполняют произвольную команду. Потеря здесь не
+# прямая: команда сама ничего не уносит, но снимает защиту, после чего уносит
+# что угодно. Поэтому запись настроек блокируется независимо от состояния дерева.
+
+@pytest.mark.parametrize("cmd", [
+    "git config core.hooksPath /dev/null",
+    "git config --global core.hooksPath /tmp/x",
+    "git config alias.co checkout",
+    "git config core.pager sh",
+    "git -c core.pager=sh log",
+])
+def test_запись_настроек_блокируется(cmd, tmp_path) -> None:
+    репо = _песочница(tmp_path / "нстр")
+    assert _страж_блокирует(cmd, str(репо)), f"{cmd} снимает или обходит стражей"
+
+
+@pytest.mark.parametrize("cmd", [
+    "git config --get user.email",
+    "git config --list",
+    "git config --get-regexp remote",
+])
+def test_чтение_настроек_проходит(cmd, tmp_path) -> None:
+    """ПАРНЫЙ на пропуск: чтение настроек ничего не меняет и никого не снимает."""
+    репо = _песочница(tmp_path / "нстр2")
+    assert not _страж_блокирует(cmd, str(репо))

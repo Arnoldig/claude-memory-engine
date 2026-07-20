@@ -37,6 +37,12 @@ def грязный(tmp_path):
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=t@t", "-c", "user.name=t",
                     "commit", "-qm", "init"], check=True)
+    # Ветку `main` заводим ЯВНО. Имя ветки по умолчанию задаётся настройкой машины:
+    # у одного оно `main`, у другого `master`. Пока страж различал команды текстом,
+    # это было неважно; теперь он спрашивает git, ветка перед ним или путь, и на
+    # машине без `main` команда становится двусмысленной — то есть блокируется.
+    # Поймано CI: локально проходило, в чистом окружении падало.
+    subprocess.run(["git", "-C", str(tmp_path), "branch", "-f", "main"], check=False)
     f.write_text("b\n")                    # правка есть, коммита нет
     return tmp_path
 
