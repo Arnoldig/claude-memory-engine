@@ -4,7 +4,7 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.21.0] — 2026-07-24
 
 ### Added
 - **Pointers to the rules and to the lessons when a sub-agent starts.** Measured on client 2.1.217 with a control question that forbade any tool call — what was checked was the contents of the context, not the ability to open a file by path: the search and planning helpers receive neither the project rules nor memory; the general helper receives the rules and the memory index, but not the lesson texts. Lesson retrieval reaches none of them: it is printed in response to a user message, and nobody writes messages to a sub-agent — across 405 helper launches in one project and 75 in another, a lesson never arrived once.
