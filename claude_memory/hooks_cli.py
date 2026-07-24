@@ -76,6 +76,21 @@ def _emit_post_context(text: str) -> None:
     sys.exit(0)
 
 
+def _emit_subagent_context(text: str) -> None:
+    """SubagentStart: текст в контекст САМОГО суб-агента.
+
+    Форма та же, что у PostToolUse, но событие другое, и подставить одно вместо другого
+    нельзя: клиент разбирает `hookSpecificOutput` по `hookEventName`, а незнакомую пару
+    молча пропускает, лишь записав в свой лог. То есть неверный канал неотличим от
+    молчания — поэтому он проверяется отдельным тестом.
+    """
+    if text:
+        print(json.dumps({
+            "hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": text}
+        }, ensure_ascii=False))
+    sys.exit(0)
+
+
 def _emit_system_message(text: str) -> None:
     """PreCompact / прочее: системное сообщение пользователю/модели."""
     if text:
@@ -398,6 +413,27 @@ def instructions_roots(cfg: MemoryConfig, cwd: Optional[str] = None) -> list:
             break
         current = parent
     return roots
+
+
+def _existing_instructions(cfg: MemoryConfig, cwd: Optional[str] = None) -> list:
+    """Файлы инструкций, которые РЕАЛЬНО лежат на диске: список пар (как записан, полный путь).
+
+    Корни и порядок берутся у `instructions_roots`, то есть у того же обхода вверх, каким
+    их собирает хозяин. Один и тот же файл через два корня не дублируется.
+    """
+    found, seen = [], set()
+    for root in instructions_roots(cfg, cwd):
+        for rel in cfg.instructions_files:
+            try:
+                path = os.path.abspath(os.path.join(root, rel))
+            except (OSError, ValueError):
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            if os.path.isfile(path):
+                found.append((rel, path))
+    return found
 
 
 def _same_file(path: str, other: str) -> bool:
@@ -731,6 +767,34 @@ def ev_agent_log(event: dict, cfg: MemoryConfig, session_id: str, now_iso: str) 
     subagent_efficiency_log.append_record(log, line)
 
 
+def ev_subagent_start(cfg: MemoryConfig, cwd: str) -> str:
+    """SubagentStart: указатели на правила и на каталог уроков — суб-агент не видит ни того,
+    ни другого.
+
+    Замерено (клиент 2.1.217, контрольный вопрос с запретом вызывать инструменты): `Explore`
+    и `Plan` не получают ни правил проекта, ни памяти; `general-purpose` получает правила и
+    оглавление памяти, но не тексты уроков. Подбор движка не доходит ни до кого: он
+    печатается на UserPromptSubmit, а у суб-агента такого события нет.
+
+    Отдаём УКАЗАТЕЛИ, а не содержимое, по двум причинам. Запроса на этом событии нет —
+    клиент подаёт `session_id`, `cwd`, `agent_id`, `agent_type`, но не текст задания, —
+    поэтому подобрать урок по смыслу не по чему. И это ровно то, что движок уже делает на
+    подборе: там тоже отдаётся имя файла с описанием, а читает модель сама.
+
+    Тишина, когда указывать не на что: выдуманный путь хуже отсутствующего.
+    """
+    части = []
+    правила = [p for _rel, p in _existing_instructions(cfg, cwd)]
+    if правила:
+        части.append(msg(cfg, "subagent.start_rules", rules=", ".join(правила)))
+    каталог = Path(cfg.memory_dir) / cfg.catalog_file
+    if каталог.is_file():
+        части.append(msg(cfg, "subagent.start_catalog", catalog=str(каталог)))
+    if not части:
+        return ""
+    return "\n".join([msg(cfg, "subagent.start_header")] + части)
+
+
 def ev_pre_compact(cfg: MemoryConfig) -> str:
     """PreCompact: напомнить про бюджет горячего ядра перед сжатием (ранний нудж на ratio)."""
     core = Path(cfg.memory_dir) / cfg.core_file
@@ -851,6 +915,10 @@ def main() -> None:
         elif event_name == "agent-log":
             now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             ev_agent_log(data, cfg, session_id, now_iso)
+        elif event_name == "subagent-start":
+            # `cwd` события точнее каталога процесса: клиент подаёт им каталог СЕССИИ, а
+            # для рабочей копии это разные каталоги. Нет поля — откатываемся на процесс.
+            _emit_subagent_context(ev_subagent_start(cfg, str(data.get("cwd") or os.getcwd())))
         elif event_name == "pre-compact":
             _emit_system_message(ev_pre_compact(cfg))
         elif event_name == "session-end":

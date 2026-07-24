@@ -29,6 +29,12 @@ HOOK_REGISTRATIONS: List[Tuple[str, str, str, int]] = [
     ("PostToolUse", "Bash", "issue-close-watch", 10),
     ("PreToolUse", "Agent", "agent-guard", 10),
     ("PostToolUse", "Agent", "agent-log", 10),
+    # Суб-агент не наследует ни правил проекта, ни уроков — и подбор до него не доходит
+    # никогда: он печатается на UserPromptSubmit, а у суб-агента такого события нет.
+    # Matcher ПУСТОЙ намеренно: перечень типов, которым правила не достаются, задаёт
+    # клиент, он уже менялся между версиями, и выпавший из перечня тип остался бы без
+    # указателей молча. См. заявку #17 и `tests/test_subagent_start_context.py`.
+    ("SubagentStart", "", "subagent-start", 10),
     ("PreCompact", "", "pre-compact", 10),
     ("SessionEnd", "clear|resume|logout|prompt_input_exit|bypass_permissions_disabled|other", "session-end", 10),
     ("Stop", "", "stop-check", 10),
