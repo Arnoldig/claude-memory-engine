@@ -4,6 +4,15 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Pointers to the rules and to the lessons when a sub-agent starts.** Measured on client 2.1.217 with a control question that forbade any tool call — what was checked was the contents of the context, not the ability to open a file by path: the search and planning helpers receive neither the project rules nor memory; the general helper receives the rules and the memory index, but not the lesson texts. Lesson retrieval reaches none of them: it is printed in response to a user message, and nobody writes messages to a sub-agent — across 405 helper launches in one project and 75 in another, a lesson never arrived once.
+
+  The engine now puts two lines into the context of a starting helper: where the project rules live and where the lesson index lives. The texts are not forwarded — the helper opens what it needs, exactly as retrieval already works. The recipient is ANY helper, with no list of types: the list of types that miss the rules is decided by the client, it has already changed between versions, and a type dropped from the list would be left without pointers silently. Nothing to point at, and the engine stays quiet.
+
+  For an already-installed engine this takes effect only after the hook set is reinstalled: the event is new, and the earlier installation does not know about it.
+
 ## [0.20.0] — 2026-07-20
 
 ### Added

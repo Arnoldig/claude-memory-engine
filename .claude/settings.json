@@ -32,6 +32,11 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rules_delivery_guard.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/main_checkout_drift_notice.sh",
+            "timeout": 30
           }
         ]
       }

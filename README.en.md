@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1156](https://img.shields.io/badge/tests-1156-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1156](https://img.shields.io/badge/tests-1189-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -134,6 +134,8 @@ The lessons in the example are made up for illustration. The labels are English 
 **Instruction file size.** `CLAUDE.md` holds the rules your assistant reads at the start of every session. It is loaded in full no matter how long it is, and it grows unnoticed: counted in lines the file looks small, because a single paragraph often takes one very long line. The problem is not the size itself — the more rules share the context at once, the more of them simply go unfollowed, and nothing about that is visible from the outside. When the file outgrows the guideline, the engine says so once: on an edit, or at the next session start if the file was changed outside the editor. It blocks nothing and never asks you to cut down to a number — rules that matter should stay, even if the file ends up above the guideline. Off switch: `instructions_budget_chars: 0`.
 
 **Expensive sub-agent model.** Once per session, warns if a helper sub-agent is launched on the most powerful and expensive model. Always on.
+
+**Pointers for a sub-agent.** A helper sub-agent starts from a blank slate: your project rules and memory lessons do not reach its context, and lesson retrieval never reaches it either — retrieval runs in response to your message, and nobody writes messages to a sub-agent. So when one starts, the engine hands it two lines: where the project rules live and where the lesson index lives. The texts themselves are not forwarded — the helper opens what it needs. Nothing to point at, and the engine stays quiet. Always on.
 
 **Config self-check.** At every startup it looks for settings errors that break things invisibly: typos, broken patterns, malformed dates. It separately checks the one that matters most — whether the engine reads the same folder that Claude Code's memory writes to. When those diverge, everything looks fine from the outside; there are simply no lessons. Always on.
 
