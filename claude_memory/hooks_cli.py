@@ -695,6 +695,24 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             fields = catalog_generate.parse_frontmatter(raw)
             if not fields.get("name", "").strip():
                 warnings.append(msg(cfg, "bloat.empty_name", filename=name))
+            # — высокий ярус поиска (name + keywords, вес ×2) пуст ДЛЯ ЯЗЫКА КАТАЛОГА —
+            # Встроенная авто-память переписывает `name` в латинское имя при СОЗДАНИИ файла
+            # урока, а `keywords` не трогает вовсе (замер 2026-08-16). Значит на каталоге не
+            # на английском ярус ×2 остаётся пустым, пока автор не заполнит `keywords`, и
+            # запрос на языке проекта не может совпасть с ним никогда — поиск молча съезжает
+            # на ярусы ×1 и ×0.5. Ловим в момент ЗАПИСИ: в сводке здоровья это увидят
+            # следующей сессией, а исправить дешевле всего сейчас, пока урок перед глазами.
+            # Проверяются ОБА поля яруса: у урока с не-латинским `name` ярус живой, и жалоба
+            # «ярус пуст» была бы неверна по факту (на боевом каталоге таких 360 из 485).
+            # Отдельный `if`, а не `elif` к пустому имени: это РАЗНЫЕ дефекты и чинятся они
+            # в разных полях — «имя пусто» правится в `name`, «ярус пуст» в `keywords`.
+            if (
+                cfg.no_keywords_nudge_enabled
+                and memory_retrieve.has_indexable_non_latin(fields.get("description", ""))
+                and not memory_retrieve.has_indexable_non_latin(fields.get("name", ""))
+                and not memory_retrieve.has_indexable_non_latin(fields.get("keywords", ""))
+            ):
+                warnings.append(msg(cfg, "bloat.no_keywords", filename=name))
             # — раздутое `description`: это КРАТКОЕ содержание, а не тело урока —
             # Ловим в момент записи, потому что цена платится потом и не автором: страж
             # правки и ретривер печатают description ЦЕЛИКОМ, и четыре урока по абзацу

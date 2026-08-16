@@ -44,6 +44,7 @@
   "desc_max": 150,
   "oversize_bytes": 9000,
   "description_warn_chars": 500,
+  "no_keywords_nudge_enabled": true,
   "catalog_auto_start": "<!-- AUTO-INDEX:START — managed by catalog_generate; edits between markers are overwritten -->",
   "catalog_auto_end": "<!-- AUTO-INDEX:END -->",
   "private_file_prefix": "_",
