@@ -600,3 +600,61 @@ def test_the_same_flags_pass_when_nothing_is_published(sandbox: Path, command: s
 def test_address_at_the_end_of_a_sentence(sandbox: Path) -> None:
     """Точка в конце фразы прятала адрес: перед запятой он ловился, перед точкой — нет."""
     assert _blocks(_run('gh issue comment 8 --body "пиши на ivan.petrov@mail.ru."', sandbox))
+
+
+# ── пустой список слов виден, а не молчалив (замер 2026-08-16) ──────────────────
+# Словесная половина проверки живёт списком ВНЕ git. Пустой список означает, что она
+# не запрещает ничего, и узнать это по поведению было нельзя: страж молчал одинаково
+# и когда слов нет, и когда запретного не найдено. Это ровно тот класс, который в
+# правилах проекта назван корнем: «не смогли проверить» неотличимо от «проверили, чисто».
+
+def _speaks(p: subprocess.CompletedProcess) -> bool:
+    """Сказал ли страж что-то В КОНТЕКСТ (не блокируя). Код обязан остаться нулевым."""
+    if p.returncode != 0:
+        pytest.fail(f"предупреждение не имеет права блокировать: код={p.returncode}")
+    if not p.stdout.strip():
+        return False
+    payload = json.loads(p.stdout)
+    block = payload["hookSpecificOutput"]
+    assert block["hookEventName"] == "PreToolUse", (
+        f"текст уйдёт в пустоту: имя события {block['hookEventName']!r}"
+    )
+    return bool(block["additionalContext"].strip())
+
+
+@pytest.fixture
+def empty_list(tmp_path: Path) -> Path:
+    """Проект, у которого файл списка есть, но слов в нём нет — только пояснения."""
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "private-words.txt").write_text(
+        "# только пояснения, ни одного слова\n\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_says_out_loud_that_the_word_half_is_off(empty_list: Path) -> None:
+    assert _speaks(_run('gh issue create --title t --body "обычный текст"', empty_list))
+
+
+def test_says_it_when_the_list_file_is_missing_entirely(tmp_path: Path) -> None:
+    """Файла нет — половина проверки тоже выключена, и молчать об этом нельзя."""
+    (tmp_path / ".claude").mkdir()
+    assert _speaks(_run('gh issue create --title t --body "обычный текст"', tmp_path))
+
+
+def test_silent_when_the_list_is_filled_and_nothing_was_found(sandbox: Path) -> None:
+    """Парный случай: список заполнен, запретного нет — сказать нечего."""
+    assert not _speaks(_run('gh issue create --title t --body "обычный текст"', sandbox))
+
+
+@pytest.mark.parametrize("command", ["git status", "ls -la", "python3 -m pytest"])
+def test_silent_on_commands_that_publish_nothing(empty_list: Path, command: str) -> None:
+    """Второй парный случай, и он несущий: предупреждение приходит ТОЛЬКО на публикующей
+    команде. Иначе оно звучало бы на каждой команде оболочки и его перестали бы читать —
+    вместе с ним перестали бы читать и настоящие блокировки."""
+    assert not _speaks(_run(command, empty_list))
+
+
+def test_the_warning_never_replaces_a_real_block(sandbox: Path) -> None:
+    """Когда слово найдено, страж БЛОКИРУЕТ, а не рассказывает про список."""
+    p = _run(f'gh issue create --title t --body "про {SECRET}"', sandbox)
+    assert p.returncode == 2 and not p.stdout.strip()
