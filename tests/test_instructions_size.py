@@ -30,7 +30,7 @@ from claude_memory import hooks_cli as H
 
 @pytest.fixture(autouse=True)
 def isolated_tmpdir(tmp_path, monkeypatch) -> Path:
-    """Метки разовости нуджа пишутся во временный каталог. Без изоляции они утекали бы в
+    """Метки разовости подсказки пишутся во временный каталог. Без изоляции они утекали бы в
     системный `/tmp` и переживали прогон сюиты: следующий запуск получил бы «уже сказано»
     и тест зеленел бы на молчащем страже. Тест, зависящий от мусора прошлого прогона,
     закрепляет мусор, а не поведение."""
@@ -95,7 +95,7 @@ def test_text_after_a_closing_comment_still_counts(cfg) -> None:
     должен говорить, и это опаснее ложного крика: молчание неотличимо от «всё в порядке»."""
     cfg2 = replace(cfg, instructions_budget_chars=100)
     p = _write(cfg.project_root, "CLAUDE.md", "<!-- коротко --> " + "x" * 200 + "\n")
-    # разные session_id: нудж разовый на (сессию, файл), и вторая проверка иначе молчала бы
+    # разные session_id: подсказка разовая на (сессию, файл), и вторая проверка иначе молчала бы
     # по причине троттлинга, а не разбора — тест доказывал бы не то, что заявлено
     assert "CLAUDE.md" in H.ev_instructions_check(_edit(p), cfg2, "s-one"), "хвост строки потерян"
     p.write_text("<!--\nмного\n--> " + "x" * 200 + "\n", encoding="utf-8")
@@ -454,7 +454,7 @@ def test_edit_nudge_fires_once_per_session_and_file(cfg, tmp_path) -> None:
     ev = _edit(p)
     assert H.ev_instructions_check(ev, cfg2, "sess1", td) != ""
     p.write_text("x" * 500, encoding="utf-8")
-    assert H.ev_instructions_check(ev, cfg2, "sess1", td) == "", "нудж повторился в той же сессии"
+    assert H.ev_instructions_check(ev, cfg2, "sess1", td) == "", "подсказка повторилась в той же сессии"
     # другая сессия — свой разговор, метка не должна её глушить
     assert H.ev_instructions_check(ev, cfg2, "sess2", td) != ""
 

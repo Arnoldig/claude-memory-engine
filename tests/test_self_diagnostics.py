@@ -164,7 +164,7 @@ def test_broken_wikilinks_in_pulse(cfg) -> None:
     assert cg.format_health_pulse(diag, cfg)   # пульс не молчит при битой wiki-ссылке
 
 
-# ── нудж «много уроков → проверь дубли» (только дедуп, без обобщения) ───────────
+# ── подсказка «много уроков → проверь дубли» (только дедуп, без обобщения) ───────────
 
 def test_pulse_many_lessons_nudges(cfg) -> None:
     from claude_memory import catalog_generate as cg

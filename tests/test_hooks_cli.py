@@ -170,7 +170,7 @@ def test_bloat_check_warns_on_empty_name(cfg) -> None:
 
 
 def test_bloat_check_warns_on_empty_name_in_kebab_lesson(cfg) -> None:
-    """0.10.0: нудж смотрит на «урок ли» (lesson_files), а не на приставку. Урок без
+    """0.10.0: подсказка смотрит на «урок ли» (lesson_files), а не на приставку. Урок без
     приставки раньше рос и портился без единого предупреждения."""
     p = write_lesson(cfg.memory_dir, "kebab-case-lesson.md", name='""', topic="testing",
                      body="тело урока")
@@ -181,7 +181,7 @@ def test_bloat_check_warns_on_empty_name_in_kebab_lesson(cfg) -> None:
 def test_bloat_check_silent_on_files_in_subdirs(cfg) -> None:
     """Файл в ПОДПАПКЕ memory_dir — не урок, даже с законным именем урока.
 
-    Регрессия 0.10.0: нудж звал `is_lesson_file` на голом basename произвольного пути, и
+    Регрессия 0.10.0: подсказка звала `is_lesson_file` на голом basename произвольного пути, и
     предупреждение прилетало на черновик из `drafts/`, которого корпус памяти не видит
     вовсе (`lesson_paths` обходит только корень). Один модуль давал ДВА ответа на «что
     такое урок» — ровно то расхождение, ради искоренения которого он и заведён.
@@ -191,7 +191,7 @@ def test_bloat_check_silent_on_files_in_subdirs(cfg) -> None:
     sub.mkdir()
     p = write_lesson(str(sub), "kakoy-to-chernovik.md", name='""', topic="x", body="черновик")
     out = H.ev_bloat_check({"tool_name": "Write", "tool_input": {"file_path": str(p)}}, cfg)
-    assert out == "", f"нудж прилетел на черновик в подпапке: {out}"
+    assert out == "", f"подсказка пришла на черновик в подпапке: {out}"
 
 
 def test_lesson_path_and_lesson_paths_never_disagree(cfg) -> None:
@@ -222,7 +222,7 @@ def test_lesson_path_and_lesson_paths_never_disagree(cfg) -> None:
 @pytest.mark.parametrize("base", ["MEMORY.md", "CATALOG.md", "_private.md"])
 def test_bloat_check_silent_on_non_lessons(cfg, base: str) -> None:
     """Расширение не должно распространиться на ядро/указатель/приватные: указатель
-    пересобирает сам движок, и нудж «пустой name» на нём был бы жалобой на себя."""
+    пересобирает сам движок, и подсказка «пустой name» на нём была бы жалобой на себя."""
     p = write_lesson(cfg.memory_dir, base, name='""', body="тело")
     event = {"tool_name": "Write", "tool_input": {"file_path": str(p)}}
     out = H.ev_bloat_check(event, cfg)

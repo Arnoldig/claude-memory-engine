@@ -82,7 +82,7 @@ def test_resolve_model_missing_everywhere(cfg) -> None:
     assert MR.resolve_model({"transcript_path": "/no/such/file.jsonl"}, cfg) is None
 
 
-# ── оба нуджа сразу + интеграция run() ─────────────────────────────────────────
+# ── обе подсказки сразу + интеграция run() ─────────────────────────────────────────
 
 def test_both_nudges_together(cfg) -> None:
     cfg2 = replace(

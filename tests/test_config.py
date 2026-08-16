@@ -134,7 +134,7 @@ GUARD_FLAGS = (
     "stale_reconcile_gate",       # чек-лист итогов памяти на фразу закрытия сессии
     "llm_actuality_enabled",      # актуальность линейки моделей
     "retrieve_cache_enabled",     # кэш подсказок по урокам
-    "no_keywords_nudge_enabled",  # нудж «высокий ярус поиска пуст для языка каталога»
+    "no_keywords_nudge_enabled",  # подсказка «высокий ярус поиска пуст для языка каталога»
     "commit_review_enabled",      # подсказка провести ревью перед сохранением/отправкой
     "issue_formulation_enabled",  # подсказка про формулировку заводимой задачи
 )
