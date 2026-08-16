@@ -4,6 +4,21 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] — 2026-08-16
+
+### Changed
+- **The engine stopped asking for a human title in `name` and started asking for keywords instead.** Measured by live experiments: when a lesson file is CREATED, the built-in auto-memory rewrites `name` into a latin slug (a non-latin title containing the word `canonical` became `canonical`; a title with no latin letters became empty), `keywords` is not touched at all, and once the file is under management `name` keeps whatever is written into it. Meanwhile the word `keywords` appeared in no engine message and in neither README, while `name` was called a title to be restored in three separate messages — that is, the engine asked for work the platform undoes on every new lesson.
+
+  The texts of `bloat.empty_name`, `health.no_name` and `diag.no_name` are rewritten: `name` takes a short latin slug, and the words a lesson should be found by go into `keywords` in the language you write in. The keys are NOT renamed: a project with its own translation keeps it, and keeps the old text, until it updates the translation itself.
+
+  Why this is an equal swap rather than a loss: `name` and `keywords` are folded into ONE weight-x2 set. In a live 485-lesson catalogue, 235 lessons had title words occurring nowhere else; moving those words into `keywords` reproduced the previous ranking to the digit — 235 found, 148 of them first, 28 silences — while simply latinising the title without moving them found none at all.
+
+### Added
+- **A nudge for "the high-weight retrieval field is empty for this catalogue's language".** On lesson write: the description is written in a non-latin script while neither `name` nor `keywords` holds such letters, so the weight-x2 set is empty and a query in that language cannot match it. BOTH fields of the tier are checked: a lesson with a non-latin `name` has a live tier, and complaining about it would be false. An English catalogue is never affected. Switch: `no_keywords_nudge_enabled` (on by default).
+- The index parser now reads `keywords` too, at ANY indentation — the auto-memory puts it inside the `metadata` block. Reading the top level only would have declared all 487 lessons of the best-kept catalogue empty, producing maximum noise exactly where everything was done right.
+- The count of such lessons joined the daily health pulse, the detailed diagnostics and the pulse throttling signature — otherwise a new debt would stay silent until the next day.
+- A section in both READMEs about the three lesson fields and what each is for.
+
 ## [0.21.0] — 2026-07-24
 
 ### Added

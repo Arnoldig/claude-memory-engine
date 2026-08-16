@@ -22,6 +22,7 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 from .applies_to import strip_scalar
 from .config import MemoryConfig, get_config
 from .lesson_files import lesson_paths
+from .memory_retrieve import has_indexable_non_latin
 from .messages import msg
 
 # Маркеры авто-блока по умолчанию (всё ВНЕ их — рукописное). Реальные значения берутся
@@ -63,6 +64,7 @@ class Lesson(NamedTuple):
     reverify_after: str  # "" если не задан
     size: int
     has_frontmatter: bool
+    keywords: str = ""  # "" если не задан
 
 
 def parse_frontmatter(text: str) -> Dict[str, str]:
@@ -83,7 +85,13 @@ def parse_frontmatter(text: str) -> Dict[str, str]:
         m = re.search(rf"^{key}:[ \t]*(.*)$", fm, re.MULTILINE)
         if m:
             out[key] = strip_scalar(m.group(1))
-    for key in ("topic", "subtopic", "reverify_after", "type"):
+    # `keywords` — В ЭТОЙ группе (любой отступ), и это несущее: встроенная авто-память
+    # кладёт поле ВНУТРЬ блока `metadata:`. Разбор, читающий только верхний уровень,
+    # объявил бы пустыми ВСЕ уроки самого ухоженного каталога (замер 2026-08-16: 487 из
+    # 487) — то есть дал бы максимальный шум ровно там, где всё сделано правильно.
+    # Правило совпадает с `memory_retrieve.read_fields`: половины системы обязаны
+    # понимать поле одинаково, иначе указатель и поиск расходятся молча.
+    for key in ("topic", "subtopic", "reverify_after", "type", "keywords"):
         m = re.search(rf"^[ \t]*{key}:[ \t]*(.*)$", fm, re.MULTILINE)
         if m:
             v = strip_scalar(m.group(1))
@@ -132,6 +140,7 @@ def collect_lessons(
                 reverify_after=fm.get("reverify_after", ""),
                 size=len(raw.encode("utf-8")),
                 has_frontmatter=raw.startswith("---"),
+                keywords=fm.get("keywords", ""),
             )
         )
     return lessons
@@ -286,6 +295,17 @@ def run_diagnostics(
     # урок труднее «всплывает» в retrieve. Частый источник — нормализация frontmatter
     # инструментом редактирования (обнуляет name); чинится восстановлением заголовка.
     no_name = sorted(ls.filename for ls in lessons if not ls.name)
+    # Высокий ярус поиска (name + keywords, вес ×2) пуст ДЛЯ ЯЗЫКА КАТАЛОГА: описание
+    # написано буквами не-латинского алфавита, а в ярусе таких букв нет ни одной.
+    # Запрос на языке проекта совпасть с этим ярусом не может, и поиск молча съезжает
+    # на ярусы ×1 и ×0.5. Проверяются ОБА поля яруса: у урока с не-латинским `name`
+    # ярус живой, и жалоба на него была бы неверна по факту.
+    no_keywords = sorted(
+        ls.filename for ls in lessons
+        if has_indexable_non_latin(ls.description)
+        and not has_indexable_non_latin(ls.name)
+        and not has_indexable_non_latin(ls.keywords)
+    )
     no_fm = sorted(ls.filename for ls in lessons if not ls.has_frontmatter)
     oversize = sorted(
         (ls.filename, ls.size) for ls in lessons if ls.size > cfg.oversize_bytes
@@ -296,6 +316,7 @@ def run_diagnostics(
         "unknown_topic": unknown_topic,
         "no_description": no_desc,
         "no_name": no_name,
+        "no_keywords": no_keywords,
         "no_frontmatter": no_fm,
         "oversize": oversize,
         "broken_links": find_broken_links(memory_dir, cfg),
@@ -492,12 +513,13 @@ def format_health_pulse(diag: Dict[str, list], cfg: Optional[MemoryConfig] = Non
     unknown = diag.get("unknown_topic", [])
     ut = len(unknown)
     nn = len(diag.get("no_name", []))
+    nk = len(diag.get("no_keywords", []))
     bl = len(diag["broken_links"])
     wbl = len(diag.get("broken_wikilinks", []))
     osz = len(diag["oversize"])
     total = diag["total"][0] if diag.get("total") else 0
     many = bool(cfg.lesson_count_warn) and total >= cfg.lesson_count_warn
-    if nt == 0 and ut == 0 and nn == 0 and bl == 0 and wbl == 0 and not many:
+    if nt == 0 and ut == 0 and nn == 0 and nk == 0 and bl == 0 and wbl == 0 and not many:
         return ""
     parts = []
     if nt:
@@ -514,6 +536,8 @@ def format_health_pulse(diag: Dict[str, list], cfg: Optional[MemoryConfig] = Non
         parts.append(msg(cfg, "health.unknown_topic", ut=ut, topics=shown))
     if nn:
         parts.append(msg(cfg, "health.no_name", nn=nn))
+    if nk:
+        parts.append(msg(cfg, "health.no_keywords", nk=nk))
     if bl:
         parts.append(msg(cfg, "health.broken_links", bl=bl))
     if wbl:
@@ -538,6 +562,7 @@ def _pulse_signature(diag: Dict[str, list], cfg: MemoryConfig) -> str:
     _unknown = ",".join(sorted({t for _, t in diag.get("unknown_topic", [])}))
     return (
         f"nt{len(diag['no_topic'])}_nn{len(diag.get('no_name', []))}"
+        f"_nk{len(diag.get('no_keywords', []))}"
         f"_bl{len(diag['broken_links'])}"
         f"_wbl{len(diag.get('broken_wikilinks', []))}_many{_many}"
         f"_ut{len(diag.get('unknown_topic', []))}:{_unknown}"
@@ -613,6 +638,9 @@ def print_diagnostics(diag: Dict[str, list], cfg: MemoryConfig, stream) -> None:
     print(msg(cfg, "diag.no_name", count=len(diag.get("no_name", []))), file=stream)
     for f in diag.get("no_name", []):
         print(msg(cfg, "diag.no_name_item", f=f), file=stream)
+    print(msg(cfg, "diag.no_keywords", count=len(diag.get("no_keywords", []))), file=stream)
+    for f in diag.get("no_keywords", []):
+        print(msg(cfg, "diag.no_keywords_item", f=f), file=stream)
     print(msg(cfg, "diag.no_frontmatter", count=len(diag["no_frontmatter"])), file=stream)
     print(msg(cfg, "diag.oversize_count", oversize_bytes=cfg.oversize_bytes,
               count=len(diag["oversize"])), file=stream)

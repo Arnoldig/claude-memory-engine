@@ -134,6 +134,7 @@ GUARD_FLAGS = (
     "stale_reconcile_gate",       # чек-лист итогов памяти на фразу закрытия сессии
     "llm_actuality_enabled",      # актуальность линейки моделей
     "retrieve_cache_enabled",     # кэш подсказок по урокам
+    "no_keywords_nudge_enabled",  # нудж «высокий ярус поиска пуст для языка каталога»
 )
 
 GUARD_THRESHOLDS = (

@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1156](https://img.shields.io/badge/tests-1189-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1205](https://img.shields.io/badge/tests-1205-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -64,6 +64,18 @@ flowchart LR
 ```
 
 The engine also fires on other Claude Code events: before a file edit (path-triggered lesson), at session start and end, and on stop.
+
+### The three lesson fields, and why the title is not the main one
+
+Every lesson starts with a short header. It has three fields, and their roles differ.
+
+**`description`** — the human description of the lesson. This is what the engine shows you and the assistant: in the lesson index, in the hint before you edit a file, and in search results. The displayed title comes from here.
+
+**`name`** — a short latin slug. Claude Code's built-in memory rewrites this field itself when it creates the lesson file: it normalises the name to latin characters and drops letters of other alphabets. A human title therefore cannot survive there, and you should not write one into it. The file name is usually the right value.
+
+**`keywords`** — the words you want the lesson to be found by. The built-in memory never touches this field, and at retrieval time it carries exactly the same weight as `name`. If you write lessons in a language other than English, your search words belong here. Otherwise retrieval in your language rests on the description and the lesson body alone, the highest-weight set of words stays empty, and nothing tells you so.
+
+The engine reminds you about this. If a lesson description is written in a non-latin script while neither `name` nor `keywords` holds a single word of that language, saving the lesson prints a short reminder. It stops as soon as you fill `keywords` in. The reminder is on by default; to switch it off entirely, put `"no_keywords_nudge_enabled": false` into your config file.
 
 ## Example output for your LLM assistant
 
