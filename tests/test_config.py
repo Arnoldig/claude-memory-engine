@@ -135,6 +135,8 @@ GUARD_FLAGS = (
     "llm_actuality_enabled",      # актуальность линейки моделей
     "retrieve_cache_enabled",     # кэш подсказок по урокам
     "no_keywords_nudge_enabled",  # нудж «высокий ярус поиска пуст для языка каталога»
+    "commit_review_enabled",      # подсказка провести ревью перед сохранением/отправкой
+    "issue_formulation_enabled",  # подсказка про формулировку заводимой задачи
 )
 
 GUARD_THRESHOLDS = (

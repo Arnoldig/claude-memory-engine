@@ -272,6 +272,10 @@ def _guard_states(cfg: MemoryConfig) -> Tuple[List[str], List[str]]:
          (getattr(cfg, "instructions_budget_chars", 0) or 0) > 0),
         ("stale_reconcile.guard.no_keywords",
          bool(getattr(cfg, "no_keywords_nudge_enabled", False))),
+        ("stale_reconcile.guard.commit_review",
+         bool(getattr(cfg, "commit_review_enabled", False))),
+        ("stale_reconcile.guard.issue_formulation",
+         bool(getattr(cfg, "issue_formulation_enabled", False))),
     ]
     on = [msg(cfg, key) for key, active in guards if active]
     off = [msg(cfg, key) for key, active in guards if not active]
