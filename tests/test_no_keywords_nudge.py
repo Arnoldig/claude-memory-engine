@@ -1,4 +1,4 @@
-"""Нудж «высокий ярус поиска пуст для языка каталога» (заявка #31).
+"""Подсказка «высокий ярус поиска пуст для языка каталога» (заявка #31).
 
 ЧТО СТЕРЕЖЁМ. Ранжирование складывает слова `name` и `keywords` в ОДИН набор веса ×2
 (`memory_retrieve._parse_doc`). Встроенная авто-память Claude Code при создании файла
@@ -8,7 +8,7 @@
 остаётся пустым до тех пор, пока автор не заполнит `keywords`, и запрос на языке проекта
 не может совпасть с ним никогда — поиск молча съезжает на ярусы ×1 и ×0.5.
 
-ОРАКУЛ ЗДЕСЬ — САМ ДВИЖОК, а не регэксп теста: ожидание нуджа считается через
+ОРАКУЛ ЗДЕСЬ — САМ ДВИЖОК, а не регэксп теста: ожидание подсказки считается через
 `memory_retrieve.tokenize`, то есть через тот же токенизатор, которым ретривер строит
 ярусы. Поэтому забытая форма записи поля не выпадает разом из кода и из теста: оракул
 отвечает за код, а не повторяет его.
@@ -33,7 +33,7 @@ LAT_DESC = "Lesson description written entirely in latin words"
 
 
 def _nudged(out: str, base: str, cfg) -> bool:
-    """Пришёл ли ИМЕННО этот нудж.
+    """Пришла ли ИМЕННО эта подсказка.
 
     Сверяем с готовой строкой самого движка, а не с именем файла: имя файла стоит и в
     соседней жалобе про пустой `name`, и проверка «имя в выводе» зеленела бы на ней.
@@ -85,7 +85,7 @@ NAMES = [
 
 
 def test_nudge_matches_the_engines_own_tiers_on_every_generated_form(cfg) -> None:
-    """Нудж приходит РОВНО тогда, когда ярус ×2 пуст по мерке самого ретривера."""
+    """Подсказка приходит РОВНО тогда, когда ярус ×2 пуст по мерке самого ретривера."""
     n = 0
     for pi, (place_label, place) in enumerate(PLACEMENTS):
         for vi, (val_label, value) in enumerate(VALUES):
@@ -98,7 +98,7 @@ def test_nudge_matches_the_engines_own_tiers_on_every_generated_form(cfg) -> Non
                 expected = _tier_is_dead(p, cfg)
                 assert _nudged(out, base, cfg) is expected, (
                     f"размещение={place_label}, значение={val_label}, заголовок={name_label}: "
-                    f"нудж {'ожидался' if expected else 'НЕ ожидался'}, получено {out!r}"
+                    f"подсказка {'ожидалась' if expected else 'НЕ ожидалась'}, получено {out!r}"
                 )
                 n += 1
     assert n == len(PLACEMENTS) * len(VALUES) * len(NAMES)
@@ -187,7 +187,7 @@ def test_fail_open_on_a_broken_event(cfg) -> None:
 
 
 def test_the_nudge_is_on_by_default_and_the_switch_really_silences_it(cfg) -> None:
-    """Ручка `no_keywords_nudge_enabled`: включена по умолчанию, `false` гасит нудж.
+    """Ручка `no_keywords_nudge_enabled`: включена по умолчанию, `false` гасит подсказку.
 
     Обе половины в одном тесте намеренно. Проверка «выключается» в одиночку зеленеет и на
     страже, который не работает вовсе, а проверка «включён по умолчанию» в одиночку не

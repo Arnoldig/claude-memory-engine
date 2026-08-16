@@ -129,7 +129,7 @@ def last_commit_msg(cwd: str) -> str:
 def last_commit_sha(cwd: str) -> str:
     """Полный sha последнего git-коммита в cwd ("" если не git / нет коммитов / ошибка).
 
-    Нужен stale_reconcile для разовости нуджа по (сессия, закрывающий коммит)."""
+    Нужен stale_reconcile для разовости подсказки по (сессия, закрывающий коммит)."""
     return _git(cwd, "%H")
 
 

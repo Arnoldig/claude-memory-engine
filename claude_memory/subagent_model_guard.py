@@ -9,7 +9,7 @@
 Решение — PreToolUse-страж на инструмент `Agent`: при ПЕРВОМ за сессию «забывчивом»
 запуске (тип рутинный И `model` не указан) hook делает deny с напоминанием; ассистент
 перевыпускает вызов с осознанной моделью (или повторяет как есть — повтор проходит).
-Маркер на сессию снимает блок → нудж разовый. Fail-OPEN на любой неоднозначности.
+Маркер на сессию снимает блок → подсказка разовая. Fail-OPEN на любой неоднозначности.
 
 Рутинные типы и подстрока «самой сильной модели» — из конфига (routine_subagent_types /
 strongest_model_substr): обновляются без правки кода при смене поколений моделей.
@@ -48,11 +48,11 @@ def _routine_call(tool_name: str, tool_input: object, cfg: MemoryConfig) -> Opti
 
 
 def decide(tool_name: str, tool_input: object, cfg: Optional[MemoryConfig] = None) -> Optional[str]:
-    """Чистая логика (без файловой системы): текст-причина нуджа или None.
+    """Чистая логика (без файловой системы): текст-причина подсказки или None.
 
-    Fail-OPEN во всех неоднозначностях. Нудж только при `model` пустом И рутинном типе;
+    Fail-OPEN во всех неоднозначностях. Подсказка только при `model` пустом И рутинном типе;
     явно указанный `model` — осознанный выбор → None. Явный выбор САМОЙ СИЛЬНОЙ модели
-    для рутины — отдельный нудж, см. decide_strongest().
+    для рутины — отдельная подсказка, см. decide_strongest().
     """
     cfg = cfg or get_config()
     call = _routine_call(tool_name, tool_input, cfg)
@@ -76,7 +76,7 @@ def _strongest_reason(
 def decide_strongest(
     tool_name: str, tool_input: object, cfg: Optional[MemoryConfig] = None
 ) -> Optional[str]:
-    """Нудж на ЯВНЫЙ выбор сильнейшей модели для рутинного типа. Fail-OPEN."""
+    """Подсказка про ЯВНЫЙ выбор сильнейшей модели для рутинного типа. Fail-OPEN."""
     cfg = cfg or get_config()
     call = _routine_call(tool_name, tool_input, cfg)
     if call is None:
@@ -104,7 +104,7 @@ def marker_path(session_id: str, tmpdir: str) -> Path:
 
 
 def strongest_marker_path(session_id: str, tmpdir: str) -> Path:
-    """Маркер разового нуджа «рутина на сильнейшей модели» (отдельный от «забыл model»)."""
+    """Маркер разовой подсказки «рутина на сильнейшей модели» (отдельный от «забыл model»)."""
     return _marker_path_for(STRONGEST_MARKER_PREFIX, session_id, tmpdir)
 
 
@@ -116,7 +116,7 @@ def _fire_once(marker: Path, reason: str) -> Optional[str]:
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text("1", encoding="utf-8")
     except OSError:
-        pass  # tmp недоступен → всё равно нуджим сейчас
+        pass  # tmp недоступен → всё равно говорим сейчас
     return reason
 
 
@@ -127,7 +127,7 @@ def gate(
     tmpdir: str,
     cfg: Optional[MemoryConfig] = None,
 ) -> Optional[str]:
-    """decide()/decide_strongest() + разовость (по отдельному маркеру на каждый вид нуджа)."""
+    """decide()/decide_strongest() + разовость (по отдельному маркеру на каждый вид подсказки)."""
     cfg = cfg or get_config()
     reason = decide(tool_name, tool_input, cfg)
     if reason is not None:

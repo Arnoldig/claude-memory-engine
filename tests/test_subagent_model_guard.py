@@ -23,7 +23,7 @@ def test_non_routine_type_ignored(cfg) -> None:
 def test_strongest_model_for_routine_nudges(cfg) -> None:
     r = G.decide_strongest("Agent", {"subagent_type": "general-purpose", "model": "claude-opus-4-8"}, cfg)
     assert r and "STRONGEST" in r
-    # обычная модель — без нуджа
+    # обычная модель — без подсказки
     assert G.decide_strongest("Agent", {"subagent_type": "general-purpose", "model": "sonnet"}, cfg) is None
 
 
@@ -58,7 +58,7 @@ def test_omitted_type_treated_as_default(cfg) -> None:
     assert G.decide("Agent", {"prompt": "x"}, cfg) is not None                       # забыл model
     assert G.decide("Agent", {"model": "sonnet", "prompt": "x"}, cfg) is None        # осознанный ярус
     r = G.decide_strongest("Agent", {"model": "claude-opus-4-8", "prompt": "x"}, cfg)
-    assert r and "STRONGEST" in r                                                    # опущенный тип + сильнейшая → нудж
+    assert r and "STRONGEST" in r                                                    # опущенный тип + сильнейшая → подсказка
 
 
 def test_omitted_type_default_configurable(cfg) -> None:

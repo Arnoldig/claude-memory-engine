@@ -30,16 +30,16 @@ def test_is_due(cfg) -> None:
     assert LA.is_due(old, NOW, 24)
 
 
-# ── нудж на SessionStart ──────────────────────────────────────────────────────
+# ── подсказка на SessionStart ──────────────────────────────────────────────────────
 
 def test_session_start_reactive_unknown_model(cfg) -> None:
     out = LA.session_start_nudge({"model": "claude-zeta-9"}, cfg, now=NOW)
-    assert "claude-zeta-9" in out                                   # реактивный нудж незнакомой
+    assert "claude-zeta-9" in out                                   # реактивная подсказка про незнакомую
 
 
 def test_session_start_known_model_no_reactive_but_daily(cfg) -> None:
     out = LA.session_start_nudge({"model": "claude-opus-4-8"}, cfg, now=NOW)
-    assert "claude-opus-4-8" not in out                             # известная → нет нуджа незнакомой
+    assert "claude-opus-4-8" not in out                             # известная → подсказки про незнакомую нет
     assert "llm-actuality" in out                                   # state пуст → суточная просьба
 
 

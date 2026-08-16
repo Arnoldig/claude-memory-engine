@@ -549,7 +549,7 @@ def ev_instructions_check(
 ) -> str:
     """PostToolUse Write|Edit|MultiEdit: правится ли файл инструкций и не вырос ли он.
 
-    Нудж РАЗОВЫЙ на (сессию, файл). Без этого сессия, которая сокращает раздутый файл
+    Подсказка РАЗОВАЯ на (сессию, файл). Без этого сессия, которая сокращает раздутый файл
     десятком правок, получала одно и то же сообщение на каждую — замерено: три правки
     подряд, три одинаковых текста по 816 знаков. Сессия, режущая файл ради контекста,
     получала бы в контекст килознаки нашего же ворчания, то есть страж работал бы против
@@ -587,7 +587,7 @@ def ev_instructions_check(
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text("1", encoding="utf-8")
     except OSError:
-        pass    # метку не записали — скажем ещё раз; лишний нудж дешевле молчания
+        pass    # метку не записали — скажем ещё раз; лишняя подсказка дешевле молчания
     return _instructions_message(cfg, found)
 
 
@@ -681,7 +681,7 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             pass
     # — авто-архив прецедентов —
     # ЕДИНСТВЕННОЕ место, где определение НАМЕРЕННО остаётся узким: это путь ЗАПИСИ (он
-    # вырезает карточки из файла и переносит в архив), а не нудж. Расширь его на «любой
+    # вырезает карточки из файла и переносит в архив), а не подсказка. Расширь его на «любой
     # урок» — и kebab-урок со словом-маркером прецедента молча переехал бы в архив.
     # `precedent_files` задаёт файлы явно; None → историческое поведение (первый префикс
     # уроков) бит-в-бит. Позиционный контракт «lesson_prefixes[0] == файл прецедентов»
@@ -696,12 +696,12 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
     # — урок с пустым `name`: заголовок не заполнен/обнулён (name весит ×2 в retrieve) —
     # ловим В МОМЕНТ записи, а не только в SessionStart-пульсе следующей сессии.
     # Признак урока — общий (`lesson_files`), а не приставка: до 0.10.0 урок без приставки
-    # рос без единого предупреждения, потому что нудж его не замечал (та же слепота, что
+    # рос без единого предупреждения, потому что подсказка его не замечала (та же слепота, что
     # у стража).
     # `is_lesson_path`, а НЕ `is_lesson_file`: у нас на руках ПУТЬ, а имя — половина
     # признака. Файл в подпапке (`drafts/`) носит законное имя урока, но уроком не является
     # — корпус памяти обходит только корень memory_dir. В 0.10.0 здесь стоял basename-вариант,
-    # и нудж прилетал на черновики.
+    # и подсказка приходила на черновики.
     if is_lesson_path(file_path, cfg) and name not in cfg.size_exempt:
         try:
             raw = p.read_text(encoding="utf-8")
@@ -743,7 +743,7 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             if limit and len(desc) > limit:
                 warnings.append(msg(cfg, "bloat.description_long",
                                     filename=name, size=len(desc), limit=limit))
-    # — горячее ядро: символы/байты + ранний нудж на core_warn_ratio —
+    # — горячее ядро: символы/байты + раннее предупреждение на core_warn_ratio —
     if name == cfg.core_file:
         size = _measure(p, cfg.core_size_unit)
         budget = cfg.core_budget_bytes
@@ -788,7 +788,7 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
 
 
 def ev_agent_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: str) -> Optional[str]:
-    """PreToolUse Agent: страж выбора модели суб-агента (разовый нудж)."""
+    """PreToolUse Agent: страж выбора модели суб-агента (разовая подсказка)."""
     return subagent_model_guard.gate(
         session_id, str(event.get("tool_name") or ""), event.get("tool_input") or {}, tmpdir, cfg
     )
@@ -830,7 +830,7 @@ def ev_subagent_start(cfg: MemoryConfig, cwd: str) -> str:
 
 
 def ev_pre_compact(cfg: MemoryConfig) -> str:
-    """PreCompact: напомнить про бюджет горячего ядра перед сжатием (ранний нудж на ratio)."""
+    """PreCompact: напомнить про бюджет горячего ядра перед сжатием (раннее предупреждение на ratio)."""
     core = Path(cfg.memory_dir) / cfg.core_file
     if not core.is_file():
         return ""

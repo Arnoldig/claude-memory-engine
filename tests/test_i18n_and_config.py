@@ -1,7 +1,7 @@
 """Тесты i18n-каталога сообщений и новых config-ключей (#memory-lib-cutover).
 
 Покрывают: переопределение сообщений (язык), измерение ядра в символах/байтах,
-ранний нудж на ratio, сужение размер-warning по префиксам/исключениям/override,
+раннее предупреждение на ratio, сужение размер-warning по префиксам/исключениям/override,
 счётчик прецедентов, пропуск архива, конфигурируемые маркеры CATALOG, проектные
 ноты SessionStart, и что каждый ключ msg() в коде существует в DEFAULT_MESSAGES.
 """
@@ -129,18 +129,18 @@ def test_core_chars_vs_bytes_cyrillic(cfg) -> None:
     assert "OVER" in _bloat(cfg_bytes)    # 120 байт > 100 — превышение
 
 
-# ── ранний нудж ядра на core_warn_ratio ───────────────────────────────────────
+# ── раннее предупреждение о ядре на core_warn_ratio ───────────────────────────────────────
 
 def test_core_warn_ratio_band(cfg) -> None:
     cfg2 = replace(cfg, core_size_unit="chars", core_budget_bytes=100, core_warn_ratio=0.8)
     _core(cfg, "x" * 85)
     out = _bloat(cfg2)
-    assert "approaching" in out and "OVER" not in out      # 85% — ранний нудж
+    assert "approaching" in out and "OVER" not in out      # 85% — раннее предупреждение
     _core(cfg, "x" * 105)
     assert "OVER" in _bloat(cfg2)                            # >100% — превышение
     cfg_off = replace(cfg2, core_warn_ratio=None)
     _core(cfg, "x" * 85)
-    assert _bloat(cfg_off) == ""                             # ratio=None — раннего нуджа нет
+    assert _bloat(cfg_off) == ""                             # ratio=None — раннего предупреждения нет
 
 
 # ── размер уроков: префиксы / исключения / override / счётчик / архив ─────────
