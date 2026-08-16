@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import (
+    bash_notices,
     catalog_generate,
     issue_close_watch,
     memory_archive,
@@ -72,6 +73,21 @@ def _emit_post_context(text: str) -> None:
     if text:
         print(json.dumps({
             "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}
+        }, ensure_ascii=False))
+    sys.exit(0)
+
+
+def _emit_pre_tool_context(text: str) -> None:
+    """PreToolUse: текст в контекст модели ДО выполнения команды.
+
+    Форма та же, что у PostToolUse, но `hookEventName` другой: клиент разбирает
+    `hookSpecificOutput` по этому полю, и пара с чужим именем события игнорируется
+    целиком — подсказка просто не дойдёт, и молчание будет неотличимо от «сказать
+    нечего». Голый stdout на PreToolUse в контекст не инжектится.
+    """
+    if text:
+        print(json.dumps({
+            "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}
         }, ensure_ascii=False))
     sys.exit(0)
 
@@ -926,6 +942,8 @@ def main() -> None:
             _emit_post_context(issue_close_watch.record_close(
                 data, cfg, os.getcwd(), time.time(), session_id
             ) or "")
+        elif event_name == "pre-bash-notice":
+            _emit_pre_tool_context(bash_notices.notes(data, cfg))
         elif event_name == "agent-guard":
             r = ev_agent_guard(data, cfg, session_id, tmpdir)
             if r:

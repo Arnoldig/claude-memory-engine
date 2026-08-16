@@ -4,6 +4,20 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.23.0] — 2026-08-16
+
+### Added
+- **Two hints before a shell command — the `bash_notices` module, PreToolUse on Bash.** Both lived as separate bash scripts in two consumer projects at once and had already drifted apart. Copies of one mechanism drifting is exactly what this engine exists to cure, so the mechanism moved into the library and everything project-specific moved into the config and the message catalogue.
+
+  The first hint: before saving or sending changes, it asks for a security review and a simplification pass over the changed code files, and names those files. It stays silent when no code file changed: a review hint over an empty set is noise. Settings: `commit_review_enabled`, `commit_review_verbs`, `commit_review_extensions`, `commit_review_max_files`.
+
+  The second hint: when an issue is created, it names mechanically visible wording defects — a leading `#` in the title (GitHub reads it as a reference to another issue), a slug as a title, a file name or path in the title, an all-caps acronym, a long body with no link to a context file. Only what a machine can see without understanding meaning is checked. Settings: `issue_formulation_enabled`, `issue_body_warn_chars`, `issue_context_dir` (empty turns the long-body check off, because advising a file be put into a directory the project does not have is knowingly false advice).
+
+  Neither hint BLOCKS anything, and both are on by default. The direction follows the cost of being wrong: a skipped review and an awkward title are both reversible, while a blocking parse of an arbitrary shell command would be wrong often and would be removed together with the protection.
+
+### Fixed
+- The publication guard did not recognise two command forms as publishing: an equals sign between flag and value (`--method=POST`, `-X=POST`), and the flag that passes the request body as a file (`--input`). The guard could already read such a file, but did not treat the command as publishing, so it never got that far and the call went out silently. Separately: an e-mail address at the end of a sentence, followed by a full stop, slipped through, while the same address before a comma was blocked.
+
 ## [0.22.0] — 2026-08-16
 
 ### Changed

@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1212](https://img.shields.io/badge/tests-1212-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1270](https://img.shields.io/badge/tests-1270-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -168,6 +168,7 @@ A table for those who will read or extend the code: which feature is implemented
 | Lesson matching by request | `memory_retrieve` |
 | Fast-matching cache | `sqlite_index` |
 | Lessons by file path (including in a git worktree) | `applies_to` |
+| Hints before a shell command: review before saving, issue wording | `bash_notices` |
 
 **The memory maintains itself**
 

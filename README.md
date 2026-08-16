@@ -4,7 +4,7 @@
 
 Долговременная автообновляемая память «уроков» для Claude Code: нужный урок показывается сам, когда он пригодится. Подбор подходящих уроков ведёт обычный код, а не ИИ, поэтому работает быстро, офлайн и без сторонних зависимостей.
 
-![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 1212](https://img.shields.io/badge/tests-1212-brightgreen)
+![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 1270](https://img.shields.io/badge/tests-1270-brightgreen)
 
 **Русский** · [English](README.en.md)
 
@@ -168,6 +168,7 @@ flowchart LR
 | Подбор уроков по запросу | `memory_retrieve` |
 | Кэш быстрого подбора | `sqlite_index` |
 | Уроки по пути файла (в том числе в git-worktree) | `applies_to` |
+| Подсказки перед командой оболочки: ревью до сохранения, формулировка задачи | `bash_notices` |
 
 **Память сама себя поддерживает**
 
