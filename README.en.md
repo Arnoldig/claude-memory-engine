@@ -4,7 +4,7 @@
 
 A long-term, self-maintaining memory of "lessons" for Claude Code: the right lesson surfaces by itself when it is needed. Plain code, not an LLM, picks the matching lessons, so it works fast, offline, and without third-party dependencies.
 
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1277](https://img.shields.io/badge/tests-1277-brightgreen)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen) ![Tests: 1329](https://img.shields.io/badge/tests-1329-brightgreen)
 
 [Русский](README.md) · **English**
 
@@ -192,6 +192,7 @@ A table for those who will read or extend the code: which feature is implemented
 | Sub-agent delegation log | `subagent_efficiency_log` |
 | Model lineup actuality (reactive + daily) | `llm_actuality` |
 | Config self-check | `self_check` |
+| Universal shell-guard distribution and drift check (`claude-memory sync-guards`) | `guards_sync` |
 
 ### Verify the lessons path is set up correctly
 

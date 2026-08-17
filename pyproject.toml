@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-memory-engine"
-version = "0.23.0"
+version = "0.24.0"
 description = "Reusable lessons/memory engine for Claude Code: frontmatter lessons, auto-CATALOG, offline retrieval, path-triggered lessons, auto-maintenance, parallel-session and sub-agent guards."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -24,6 +24,10 @@ claude-memory = "claude_memory.cli:main"
 
 [tool.setuptools]
 packages = ["claude_memory"]
+
+[tool.setuptools.package-data]
+# Эталоны универсальных shell-стражей едут в пакете (см. claude_memory/guards_sync.py)
+claude_memory = ["guards/*.sh"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

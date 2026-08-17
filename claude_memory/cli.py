@@ -181,6 +181,19 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sync_guards(args: argparse.Namespace) -> int:
+    """Донести эталонные shell-стражи пакета до проекта и зарегистрировать их.
+
+    Закрывает класс «отставшая копия стража»: копия, разнесённая руками,
+    устаревает беззвучно (подробности — докстринг claude_memory/guards_sync)."""
+    from . import guards_sync
+
+    project_dir = Path(args.project_dir or Path.cwd()).expanduser().resolve()
+    for line in guards_sync.sync(str(project_dir), register=not args.no_register):
+        print(line)
+    return 0
+
+
 def cmd_uninstall(args: argparse.Namespace) -> int:
     """Снять движок с проекта: убрать наши хуки из settings.json, удалить обёртку, конфиг
     и (для варианта A) вшитую копию движка. Уроки (memory_dir) НЕ трогаем."""
@@ -271,6 +284,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_config = sub.add_parser("config", help="print the whole config or one field: config [get FIELD]")
     p_config.add_argument("rest", nargs=argparse.REMAINDER)
     p_config.set_defaults(func=cmd_config)
+
+    p_guards = sub.add_parser(
+        "sync-guards",
+        help="install/refresh the packaged universal shell guards into .claude/hooks "
+             "and register them in settings.json (idempotent; foreign hooks untouched)",
+    )
+    p_guards.add_argument(
+        "project_dir", nargs="?", default=None,
+        help="project root (default: current directory)",
+    )
+    p_guards.add_argument(
+        "--no-register", action="store_true",
+        help="copy guard files only; do not touch settings.json",
+    )
+    p_guards.set_defaults(func=cmd_sync_guards)
 
     return parser
 
