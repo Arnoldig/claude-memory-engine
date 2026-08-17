@@ -280,3 +280,70 @@ def test_report_marks_derived_path(cfg, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "nohome"))
     text = "\n".join(SC.report(cfg))
     assert "derived, not confirmed" in text
+
+
+# ── (6) мёртвые команды хуков и битый интерпретатор обёртки (класс «мёртвая установка») ──
+
+def _hooks_settings(*cmds: str) -> dict:
+    return {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+        {"type": "command", "command": c} for c in cmds]}]}}
+
+
+def test_hook_cmd_missing_flagged(cfg) -> None:
+    """Команда хука указывает на несуществующий файл → жалоба. Мотив: в двух живых
+    проектах 28 команд около месяца указывали на каталог переименованной учётной
+    записи, и ни один хук об этом не сказал — не запустившийся хук неотличим от
+    хука, которому нечего сказать."""
+    _settings(cfg.project_root, ".claude/settings.json",
+              _hooks_settings("bash /no/such/dir/hook.sh pre"))
+    assert any("/no/such/dir/hook.sh" in w for w in SC.warnings(cfg))
+
+
+def test_hook_cmd_portable_var_expands_and_checks(cfg) -> None:
+    ok = Path(cfg.project_root) / ".claude" / "hooks" / "ok.sh"
+    ok.parent.mkdir(parents=True, exist_ok=True)
+    ok.write_text("#!/bin/bash\n", encoding="utf-8")
+    _settings(cfg.project_root, ".claude/settings.json", _hooks_settings(
+        'bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/ok.sh go',
+        'bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/gone.sh go',
+    ))
+    joined = "\n".join(SC.warnings(cfg))
+    assert "gone.sh" in joined and "ok.sh" not in joined
+
+
+def test_hook_cmd_unverifiable_forms_stay_silent(cfg) -> None:
+    """Бинарь из PATH, чужая переменная, конвейер: надёжно разобрать такой shell
+    нельзя, и «не смогли проверить» здесь законно молчит — проверка чисто
+    диагностическая, потеря обратима."""
+    _settings(cfg.project_root, ".claude/settings.json", _hooks_settings(
+        "npx some-tool", "bash $OTHER_VAR/x.sh", "cat x | grep y"))
+    assert SC.warnings(cfg) == []
+
+
+def _write_wrapper(root: str, interp: str) -> Path:
+    w = Path(root) / ".claude" / "hooks" / "cme_hook.sh"
+    w.parent.mkdir(parents=True, exist_ok=True)
+    w.write_text(f'#!/bin/bash\nexec {interp} -m claude_memory.hooks_cli "$@"\n',
+                 encoding="utf-8")
+    return w
+
+
+def test_wrapper_interp_missing_flagged_only_in_verbose(cfg) -> None:
+    """Интерпретатор, закреплённый в cme_hook.sh, отсутствует → каждый хук движка
+    мёртв. Жалоба только в verbose (doctor): дешёвый SessionStart-путь субпроцессов
+    не запускает — это его лицензия."""
+    _write_wrapper(cfg.project_root, "/no/such/python3")
+    assert not any("/no/such/python3" in w for w in SC.warnings(cfg))
+    assert any("/no/such/python3" in w for w in SC.warnings(cfg, verbose=True))
+
+
+def test_wrapper_interp_import_failure_flagged(cfg) -> None:
+    # /usr/bin/false существует, но `import claude_memory` под ним «падает» (код 1)
+    _write_wrapper(cfg.project_root, "/usr/bin/false")
+    assert any("/usr/bin/false" in w for w in SC.warnings(cfg, verbose=True))
+
+
+def test_wrapper_interp_healthy_silent(cfg) -> None:
+    import sys as _sys
+    _write_wrapper(cfg.project_root, _sys.executable)
+    assert not any("cme_hook.sh" in w for w in SC.warnings(cfg, verbose=True))

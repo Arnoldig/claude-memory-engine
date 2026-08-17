@@ -146,6 +146,7 @@ GUARD_THRESHOLDS = (
     "model_registry_max_age_days",
     "llm_actuality_interval_hours",
     "core_budget_bytes",          # бюджет горячего ядра
+    "core_wall_bytes",            # стена платформы: первые 200 строк / 25 КБ ядра
     "instructions_budget_chars",  # ориентир размера файла инструкций проекта
     "feedback_warn_bytes",        # предупреждение о крупном уроке
     "marker_limit",               # формат session-маркера

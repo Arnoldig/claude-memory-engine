@@ -149,8 +149,8 @@ def test_archive_stale_off_when_zero(cfg) -> None:
     cfg0 = replace(cfg, archive_stale_months=0)
     _write_archived(cfg, "feedback_ancient.md", "2020-01-01")
     assert ST.scan_archive_stale(cfg0, today=TODAY) == []
-    # дефолт теперь 6 мес → тот же древний урок флагуется
-    assert any(n == "feedback_ancient.md" for _, n, _, _ in ST.scan_archive_stale(cfg, today=TODAY))
+    # дефолт теперь 6 мес → тот же древний урок флагуется (кандидат несёт путь от архива)
+    assert any(n == "legacy/feedback_ancient.md" for _, n, _, _ in ST.scan_archive_stale(cfg, today=TODAY))
 
 
 def test_archive_stale_respects_threshold_and_field(cfg) -> None:
@@ -160,7 +160,7 @@ def test_archive_stale_respects_threshold_and_field(cfg) -> None:
     _write_archived(cfg, "feedback_no_field.md", archived_on=None)  # без поля — агрегат, не кандидат
     res = ST.scan_archive_stale(cfg12, today=TODAY)
     names = [n for _, n, _, _ in res]
-    assert names == ["feedback_old_arc.md"]
+    assert names == ["legacy/feedback_old_arc.md"]
     # выходит и в _stale_pending (отдельная секция)
     assert ST.run(cfg12, today=TODAY) is True
     body = (Path(cfg.memory_dir) / ST.STALE_FILE).read_text(encoding="utf-8")
@@ -178,7 +178,7 @@ def test_quoted_description_stripped_in_stale_and_archive(cfg) -> None:
     _write_archived(cfg, "feedback_arc_q.md", "2025-01-01", desc='"архив в кавычках"')
     cfg12 = replace(cfg, archive_stale_months=12)
     arc = ST.scan_archive_stale(cfg12, today=TODAY)
-    assert [d for _, n, _, d in arc if n == "feedback_arc_q.md"] == ["архив в кавычках"]
+    assert [d for _, n, _, d in arc if n == "legacy/feedback_arc_q.md"] == ["архив в кавычках"]
 
 
 def test_archive_prune_backs_up_then_deletes(cfg) -> None:
@@ -186,11 +186,34 @@ def test_archive_prune_backs_up_then_deletes(cfg) -> None:
     p = _write_archived(cfg, "feedback_old_arc.md", "2025-01-01")
     # dry-run ничего не трогает
     cands, deleted = AP.prune(cfg12, apply=False, today=TODAY)
-    assert [n for _, n, _, _ in cands] == ["feedback_old_arc.md"] and deleted == [] and p.exists()
-    # apply: бэкап ДО удаления, оригинал исчезает
+    assert [n for _, n, _, _ in cands] == ["legacy/feedback_old_arc.md"] and deleted == [] and p.exists()
+    # apply: бэкап ДО удаления (с сохранением подпапки), оригинал исчезает
     _, deleted = AP.prune(cfg12, apply=True, today=TODAY)
-    assert deleted == ["feedback_old_arc.md"] and not p.exists()
-    backup = Path(cfg.memory_dir) / AP.BACKUP_DIR / TODAY.isoformat() / "feedback_old_arc.md"
+    assert deleted == ["legacy/feedback_old_arc.md"] and not p.exists()
+    backup = (Path(cfg.memory_dir) / AP.BACKUP_DIR / TODAY.isoformat()
+              / "legacy" / "feedback_old_arc.md")
     assert backup.exists()
     # бэкап вне глоба хранения → повторный скан его НЕ переоткрывает
     assert ST.scan_archive_stale(cfg12, today=TODAY) == []
+
+
+def test_archive_prune_same_name_in_subdirs_deletes_exact_path(cfg) -> None:
+    """Тёзки в разных подпапках архива: удалиться обязан именно просроченный файл.
+
+    До правки кандидат нёс только basename, а prune брал ПЕРВОЕ совпадение
+    рекурсивного поиска по имени — мог забэкапить и удалить свежий файл-тёзку,
+    оставив просроченный жить. Теперь кандидат несёт путь относительно архива."""
+    cfg12 = replace(cfg, archive_stale_months=12)
+    arc = Path(cfg.memory_dir) / cfg.archive_dir_name
+    fresh = arc / "a-fresh" / "feedback_twin.md"
+    stale = arc / "b-stale" / "feedback_twin.md"
+    for p, d in ((fresh, "2026-06-01"), (stale, "2025-01-01")):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"---\narchived_on: {d}\ndescription: x\n---\n", encoding="utf-8")
+    cands, deleted = AP.prune(cfg12, apply=True, today=TODAY)
+    assert [n for _, n, _, _ in cands] == ["b-stale/feedback_twin.md"]
+    assert deleted == ["b-stale/feedback_twin.md"]
+    assert fresh.exists() and not stale.exists()
+    backup = (Path(cfg.memory_dir) / AP.BACKUP_DIR / TODAY.isoformat()
+              / "b-stale" / "feedback_twin.md")
+    assert backup.exists()

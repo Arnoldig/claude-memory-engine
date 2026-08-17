@@ -101,3 +101,27 @@ def test_run_uses_event_model(cfg) -> None:
     assert "zeta" in text
     text2 = MR.run({"model": "claude-opus-4-8"}, cfg2, TODAY)
     assert text2 == ""
+
+
+# ── подключение просрочки к SessionStart (до правки не вызывалась ниоткуда) ────
+
+def test_stale_nudge_wired_into_session_start(cfg) -> None:
+    """config.py обещал напоминание на SessionStart, а диспетчер hooks_cli модуль
+    не импортировал вовсе — вторая проверка стража была мертва при любом значении."""
+    from dataclasses import replace as _r
+    from claude_memory import hooks_cli as H
+    out = H.ev_session_start({"cwd": cfg.project_root},
+                             _r(cfg, model_registry_verified_on="2020-01-01"))
+    assert "[model-registry]" in out
+
+
+def test_stale_nudge_zero_max_age_disables(cfg) -> None:
+    # контракт GUARD_THRESHOLDS: 0 = выключен, а не «просрочено всегда»
+    cfg2 = replace(cfg, model_registry_verified_on="2020-01-01",
+                   model_registry_max_age_days=0)
+    assert MR.stale_nudge(cfg2, TODAY) == ""
+
+
+def test_stale_nudge_fresh_date_silent(cfg) -> None:
+    cfg2 = replace(cfg, model_registry_verified_on=TODAY.isoformat())
+    assert MR.stale_nudge(cfg2, TODAY) == ""

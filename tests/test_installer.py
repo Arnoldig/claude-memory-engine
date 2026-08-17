@@ -152,3 +152,49 @@ def test_load_settings_coerces_non_object(tmp_path) -> None:
     p = tmp_path / "settings.json"
     p.write_text("[]", encoding="utf-8")               # валидный JSON-массив, не объект
     assert I.load_settings(str(p)) == {}               # приводим к {}
+
+
+# ── переносимый путь команды: "$CLAUDE_PROJECT_DIR" вместо абсолютного ─────────
+
+def _all_commands(settings: dict) -> list:
+    return [
+        h["command"]
+        for groups in settings.get("hooks", {}).values()
+        for g in groups
+        for h in g.get("hooks", [])
+    ]
+
+
+def test_merge_writes_portable_project_dir_command(tmp_path) -> None:
+    """Абсолютный путь в settings.json — источник класса «мёртвая установка»:
+    переименование учётной записи или переезд каталога проекта молча убивает
+    все хуки (замерено: 28 команд в двух проектах указывали на несуществующий
+    каталог около месяца, и ни одна не сказала об этом). С project_root команда
+    пишется через "$CLAUDE_PROJECT_DIR" и переезды переживает."""
+    wrapper = tmp_path / ".claude" / "hooks" / "cme_hook.sh"
+    merged, added = I.merge_settings({}, str(wrapper), project_root=str(tmp_path))
+    assert added == len(I.HOOK_REGISTRATIONS)
+    for cmd in _all_commands(merged):
+        assert cmd.startswith('bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/cme_hook.sh '), cmd
+
+
+def test_merge_outside_project_keeps_abspath(tmp_path) -> None:
+    # скрипт вне корня проекта переменной не выразить — честный абсолютный путь
+    wrapper = tmp_path / "elsewhere" / "cme_hook.sh"
+    merged, _ = I.merge_settings({}, str(wrapper), project_root=str(tmp_path / "proj"))
+    for cmd in _all_commands(merged):
+        assert str(wrapper) in cmd and "$CLAUDE_PROJECT_DIR" not in cmd
+
+
+def test_portable_entries_round_trip_uninstall(tmp_path) -> None:
+    wrapper = tmp_path / ".claude" / "hooks" / "cme_hook.sh"
+    merged, added = I.merge_settings({}, str(wrapper), project_root=str(tmp_path))
+    cleaned, removed = I.remove_engine_hooks(merged)
+    assert removed == added and cleaned == {}
+
+
+def test_portable_merge_idempotent(tmp_path) -> None:
+    wrapper = tmp_path / ".claude" / "hooks" / "cme_hook.sh"
+    merged, _ = I.merge_settings({}, str(wrapper), project_root=str(tmp_path))
+    again, added2 = I.merge_settings(merged, str(wrapper), project_root=str(tmp_path))
+    assert added2 == 0 and again == merged

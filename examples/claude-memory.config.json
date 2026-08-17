@@ -145,6 +145,7 @@
   "core_budget_bytes": 15000,
   "core_size_unit": "chars",
   "core_warn_ratio": 0.8,
+  "core_wall_bytes": 25600,
   "instructions_budget_chars": 20000,
   "instructions_files": [
     "CLAUDE.md"

@@ -33,6 +33,7 @@ from . import (
     memory_concurrency,
     memory_retrieve,
     llm_actuality,
+    model_registry_guard,
     precedent_index,
     self_check,
     session_marker_guard,
@@ -145,6 +146,14 @@ def ev_session_start(event: dict, cfg: MemoryConfig) -> str:
             out_lines.append(la)
     except Exception:  # noqa: BLE001 — fail-open: подстраховка не должна мешать старту
         pass
+    # просрочка ручной сверки линейки моделей — вторая проверка model_registry_guard;
+    # первую («незнакомая модель») реактивно делает llm_actuality строкой выше
+    try:
+        mr = model_registry_guard.stale_nudge(cfg)
+        if mr:
+            out_lines.append(mr)
+    except Exception:  # noqa: BLE001 — fail-open
+        pass
     # размер файла инструкций проекта — бэкстоп к хуку правки (правки мимо Write/Edit)
     try:
         ins = instructions_session_start(cfg, cwd=str(event.get("cwd") or ""))
@@ -216,7 +225,7 @@ def ev_pre_edit_guard(event: dict, cfg: MemoryConfig, session_id: str, tmpdir: s
     except (OSError, ValueError):
         in_memory = False
     if in_memory:
-        c = memory_concurrency.conflict_reason(session_id, file_path, tmpdir)
+        c = memory_concurrency.conflict_reason(session_id, file_path, tmpdir, cfg)
         if c:
             return c
 
@@ -743,16 +752,18 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
             if limit and len(desc) > limit:
                 warnings.append(msg(cfg, "bloat.description_long",
                                     filename=name, size=len(desc), limit=limit))
-    # — горячее ядро: символы/байты + раннее предупреждение на core_warn_ratio —
+    # — горячее ядро: бюджет качества (знаки/байты) + стена платформы (байты) —
     if name == cfg.core_file:
-        size = _measure(p, cfg.core_size_unit)
         budget = cfg.core_budget_bytes
-        unit = _unit_word(cfg, cfg.core_size_unit)
-        pct = round(size / budget * 100) if budget else 0
-        if size > budget:
-            warnings.append(msg(cfg, "bloat.core_over", core_file=name, size=size, unit=unit, pct=pct, budget=budget))
-        elif cfg.core_warn_ratio and size >= cfg.core_warn_ratio * budget:
-            warnings.append(msg(cfg, "bloat.core_warn", core_file=name, size=size, unit=unit, pct=pct, budget=budget))
+        if budget:  # 0 = страж выключен (контракт GUARD_THRESHOLDS)
+            size = _measure(p, cfg.core_size_unit)
+            unit = _unit_word(cfg, cfg.core_size_unit)
+            pct = round(size / budget * 100)
+            if size > budget:
+                warnings.append(msg(cfg, "bloat.core_over", core_file=name, size=size, unit=unit, pct=pct, budget=budget))
+            elif cfg.core_warn_ratio and size >= cfg.core_warn_ratio * budget:
+                warnings.append(msg(cfg, "bloat.core_warn", core_file=name, size=size, unit=unit, pct=pct, budget=budget))
+        warnings.extend(_core_wall_warnings(p, cfg))
         return "\n".join(warnings)
     # — обычный урок: байты, не exempt —
     # `size_warn_prefixes` остаётся СУЖАЮЩЕЙ ручкой (проект может ограничить warning'и
@@ -765,7 +776,7 @@ def ev_bloat_check(event: dict, cfg: MemoryConfig, today: Optional[datetime.date
     ):
         size = p.stat().st_size
         limit = cfg.size_override.get(name, cfg.feedback_warn_bytes)
-        if size > limit:
+        if limit and size > limit:  # 0 = страж выключен (и в size_override тоже)
             warnings.append(msg(cfg, "bloat.lesson_over", filename=name, size=size, unit=_unit_word(cfg, "bytes"), limit=limit))
         if cfg.precedent_count_warn:
             try:
@@ -829,19 +840,45 @@ def ev_subagent_start(cfg: MemoryConfig, cwd: str) -> str:
     return "\n".join([msg(cfg, "subagent.start_header")] + части)
 
 
+def _core_wall_warnings(p: Path, cfg: MemoryConfig) -> list:
+    """Предупреждения о СТЕНЕ платформы для ядра (0..1 строка; [] — тихо).
+
+    Стена — механика хозяина: Claude Code грузит первые 200 строк ИЛИ первые
+    25 КБ ядра, дальше содержимое молча теряется (см. комментарий к
+    core_wall_bytes в config.py). Меряется в единицах стены — байтах файла;
+    знаковый бюджет качества это состояние не видит (кириллица весит 2 байта
+    на букву). core_wall_bytes=0 — выключено (контракт GUARD_THRESHOLDS)."""
+    wall = cfg.core_wall_bytes
+    if not wall:
+        return []
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return []
+    if size > wall:
+        return [msg(cfg, "bloat.core_wall_over", core_file=p.name, size=size, wall=wall)]
+    if cfg.core_warn_ratio and size >= cfg.core_warn_ratio * wall:
+        pct = round(size / wall * 100)
+        return [msg(cfg, "bloat.core_wall_warn", core_file=p.name, size=size, pct=pct, wall=wall)]
+    return []
+
+
 def ev_pre_compact(cfg: MemoryConfig) -> str:
-    """PreCompact: напомнить про бюджет горячего ядра перед сжатием (раннее предупреждение на ratio)."""
+    """PreCompact: бюджет горячего ядра (раннее предупреждение) + стена платформы."""
     core = Path(cfg.memory_dir) / cfg.core_file
     if not core.is_file():
         return ""
-    size = _measure(core, cfg.core_size_unit)
+    out = []
     budget = cfg.core_budget_bytes
-    threshold = budget * (cfg.core_warn_ratio if cfg.core_warn_ratio else 1.0)
-    if size >= threshold:
-        unit = _unit_word(cfg, cfg.core_size_unit)
-        pct = round(size / budget * 100) if budget else 0
-        return msg(cfg, "compact.core_over", core_file=cfg.core_file, size=size, unit=unit, pct=pct, budget=budget)
-    return ""
+    if budget:  # 0 = страж выключен (контракт GUARD_THRESHOLDS)
+        size = _measure(core, cfg.core_size_unit)
+        threshold = budget * (cfg.core_warn_ratio if cfg.core_warn_ratio else 1.0)
+        if size >= threshold:
+            unit = _unit_word(cfg, cfg.core_size_unit)
+            pct = round(size / budget * 100)
+            out.append(msg(cfg, "compact.core_over", core_file=cfg.core_file, size=size, unit=unit, pct=pct, budget=budget))
+    out.extend(_core_wall_warnings(core, cfg))
+    return "\n".join(out)
 
 
 def ev_session_end(cfg: MemoryConfig, session_id: str, tmpdir: str) -> None:

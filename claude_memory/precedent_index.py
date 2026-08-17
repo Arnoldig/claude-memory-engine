@@ -20,22 +20,22 @@ import re
 from pathlib import Path
 from typing import List, NamedTuple, Optional
 
+from . import lesson_files
 from .config import MemoryConfig, get_config
 from .messages import msg
 
 CARD_HEAD_RE = re.compile(r"^## (.+)$", re.MULTILINE)
 DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+# Кандидат в ссылку на урок — любой `*.md`-токен (включая kebab и не-латиницу, \w
+# юникодный); уроком его признаёт lesson_files.is_lesson_file, а не приставка.
+# Приставочный регэксп жил здесь до 0.24.0 — единственный модуль, не переведённый
+# на единый источник истины: уроки без приставки были невидимы для индекса.
+_MD_TOKEN_RE = re.compile(r"\b([\w-]+\.md)\b")
 
 
 def _extract_cmd() -> str:
     """Команда module-формы для извлечения одной карточки (передаётся в сообщения как параметр)."""
     return "python3 -m claude_memory.precedent_index --extract <archive> <date|substring>"
-
-
-def _ref_re(cfg: MemoryConfig) -> "re.Pattern[str]":
-    """Регэксп ссылок на файлы-уроки по сконфигурированным префиксам (feedback_/reference_/…)."""
-    alt = "|".join(re.escape(p) for p in cfg.lesson_prefixes)
-    return re.compile(rf"\b((?:{alt})_[\w-]+\.md)\b")
 
 
 class Card(NamedTuple):
@@ -50,7 +50,6 @@ def parse_cards(text: str, cfg: Optional[MemoryConfig] = None) -> List[Card]:
     Для каждой — дата (из заголовка), заголовок, уникальные ссылки на уроки в теле.
     """
     cfg = cfg or get_config()
-    ref_re = _ref_re(cfg)
     heads = list(CARD_HEAD_RE.finditer(text))
     cards: List[Card] = []
     for i, m in enumerate(heads):
@@ -62,7 +61,9 @@ def parse_cards(text: str, cfg: Optional[MemoryConfig] = None) -> List[Card]:
         date = dm.group(1) if dm else ""
         seen = set()
         refs: List[str] = []
-        for r in ref_re.findall(title + "\n" + body):
+        for r in _MD_TOKEN_RE.findall(title + "\n" + body):
+            if not lesson_files.is_lesson_file(r, cfg):
+                continue
             if r not in seen:
                 seen.add(r)
                 refs.append(r)

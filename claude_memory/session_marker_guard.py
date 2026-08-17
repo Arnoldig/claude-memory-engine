@@ -59,6 +59,11 @@ def violation_reason(
     if not isinstance(tool_input, dict):
         return None
     cfg = cfg or get_config()
+    if not cfg.marker_limit:
+        # 0 = страж выключен ЦЕЛИКОМ, включая проверку многострочности: это
+        # блокирующий PreToolUse-страж, и ноль обязан снимать блок, а не сжимать
+        # предел до нуля (контракт GUARD_THRESHOLDS «0 = выключен»)
+        return None
     target = cfg.session_lessons_file
     suffix = "/" + target
     path = str(tool_input.get("file_path") or "")

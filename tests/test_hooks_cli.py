@@ -139,7 +139,7 @@ def test_concurrency_conflict_denied(cfg, tmp_path) -> None:
     MC.record_seen("s1", str(mem_file), td)
     mem_file.write_text("v2-other", encoding="utf-8")  # другая сессия записала
     r = H.ev_pre_edit_guard(_edit_event(str(mem_file)), cfg, "s1", td)
-    assert r and "другой сессией" in r
+    assert r and "[memory-concurrency-guard]" in r
 
 
 def test_retrieve_event(cfg) -> None:

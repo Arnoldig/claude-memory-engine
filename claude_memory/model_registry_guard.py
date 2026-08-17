@@ -63,22 +63,38 @@ def _is_known(model: str, known) -> bool:
     return any(k and k.lower() in ml for k in known)
 
 
+def stale_nudge(
+    cfg: Optional[MemoryConfig] = None, today: Optional[datetime.date] = None
+) -> str:
+    """Напоминание «сверка линейки просрочена» (или "").
+
+    Это ВТОРАЯ проверка стража, и подключена к SessionStart она отдельно от первой:
+    «незнакомую модель» реактивно ловит llm_actuality (он переиспользует resolve_model
+    и _is_known отсюда), а просрочку ручной сверки — этот вызов из hooks_cli.
+    model_registry_max_age_days = 0 → выключено (контракт GUARD_THRESHOLDS)."""
+    cfg = cfg or get_config()
+    today = today or datetime.date.today()
+    if not cfg.model_registry_verified_on or not cfg.model_registry_max_age_days:
+        return ""
+    try:
+        d = datetime.date.fromisoformat(str(cfg.model_registry_verified_on))
+    except (ValueError, TypeError):
+        return ""
+    if (today - d).days > cfg.model_registry_max_age_days:
+        return msg(cfg, "model_registry.stale", days=(today - d).days, date=d.isoformat())
+    return ""
+
+
 def nudges(cfg: MemoryConfig, model: Optional[str], today: datetime.date) -> List[str]:
     """Список напоминаний реестра моделей (0, 1 или 2 строки)."""
     out: List[str] = []
     # 1) неизвестная модель — только если реестр известных задан (opt-in)
     if cfg.known_model_substrs and model and not _is_known(model, cfg.known_model_substrs):
         out.append(msg(cfg, "model_registry.unknown_model", model=model))
-    # 2) просрочка ручной сверки линейки
-    if cfg.model_registry_verified_on:
-        try:
-            d: Optional[datetime.date] = datetime.date.fromisoformat(
-                str(cfg.model_registry_verified_on)
-            )
-        except (ValueError, TypeError):
-            d = None
-        if d is not None and (today - d).days > cfg.model_registry_max_age_days:
-            out.append(msg(cfg, "model_registry.stale", days=(today - d).days, date=d.isoformat()))
+    # 2) просрочка ручной сверки линейки — единственная реализация в stale_nudge
+    s = stale_nudge(cfg, today)
+    if s:
+        out.append(s)
     return out
 
 

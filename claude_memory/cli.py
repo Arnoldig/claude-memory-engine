@@ -131,7 +131,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     created_cfg = _write_config_if_absent(config_path, str(memory_dir), str(project_dir))
 
     # 3. регистрация хуков в settings.json — идемпотентно, чужие хуки сохраняются
-    added = install_into_settings(str(settings_path), str(wrapper_path))
+    added = install_into_settings(str(settings_path), str(wrapper_path),
+                                  project_root=str(project_dir))
 
     print(f"claude-memory init → {project_dir}")
     print(f"  engine (pip):  {python_exe}")

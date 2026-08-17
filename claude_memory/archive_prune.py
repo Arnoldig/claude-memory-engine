@@ -40,15 +40,18 @@ def prune(
     arc_root = Path(cfg.memory_dir) / cfg.archive_dir_name
     backup_root = Path(cfg.memory_dir) / BACKUP_DIR / today.isoformat()
     deleted: List[str] = []
-    for _d, name, _months, _desc in cands:
-        matches = list(arc_root.rglob(name))
-        if not matches:
-            continue
-        src = matches[0]
-        backup_root.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, backup_root / name)
+    for _d, rel, _months, _desc in cands:
+        # кандидат несёт путь относительно архива (см. scan_archive_stale) — файл
+        # резолвится точно, без поиска по имени: у тёзок в подпапках basename не
+        # различал файлы, и удалиться могло первое совпадение вместо просроченного
+        src = arc_root / rel
+        if not src.is_file():
+            continue  # исчез между сканом и удалением
+        dst = backup_root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
         src.unlink()
-        deleted.append(name)
+        deleted.append(rel)
     return cands, deleted
 
 
