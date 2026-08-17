@@ -19,11 +19,28 @@ def test_parse_cards_dates_and_refs(cfg) -> None:
     assert cards[1].refs == []
 
 
-def test_refs_respect_configured_prefixes(cfg) -> None:
+def test_refs_do_not_require_prefix(cfg) -> None:
+    """Распознавание ссылок согласовано с lesson_files: приставка — не признак урока,
+    поэтому кастомные lesson_prefixes ссылки больше не сужают."""
     cfg2 = replace(cfg, lesson_prefixes=("note",))
     text = "## 2026-06-01 t\n\nnote_x.md и feedback_y.md\n"
     cards = PI.parse_cards(text, cfg2)
-    assert cards[0].refs == ["note_x.md"]   # feedback_ не считается уроком при таком конфиге
+    assert cards[0].refs == ["note_x.md", "feedback_y.md"]
+
+
+def test_refs_see_kebab_lessons_without_prefix(cfg) -> None:
+    """Урок без приставки — норма: имена файлам даёт авто-память Claude Code, а не движок.
+    До правки распознаватель требовал приставку из lesson_prefixes, и такие уроки были
+    невидимы для индекса прецедентов — единственный модуль, не переведённый на lesson_files."""
+    text = "## 2026-06-01 t\n\nсм. dead-guard-looks-like-blocking.md и feedback_y.md\n"
+    cards = PI.parse_cards(text, cfg)
+    assert cards[0].refs == ["dead-guard-looks-like-blocking.md", "feedback_y.md"]
+
+
+def test_refs_skip_core_catalog_and_private(cfg) -> None:
+    text = "## 2026-06-01 t\n\nMEMORY.md, CATALOG.md, _stale_pending.md, real-lesson.md\n"
+    cards = PI.parse_cards(text, cfg)
+    assert cards[0].refs == ["real-lesson.md"]
 
 
 def test_extract_card_by_date(cfg) -> None:

@@ -88,7 +88,9 @@ def test_init_creates_wrapper_config_settings(tmp_path):
 
     cmds = _settings_commands(settings)
     assert len([c for c in cmds if "cme_hook.sh" in c]) == len(I.HOOK_REGISTRATIONS)
-    assert f"bash {wrapper} retrieve" in cmds
+    # с 0.24.0 команда переносима: "$CLAUDE_PROJECT_DIR" вместо абсолютного пути,
+    # чтобы переезд/переименование каталога проекта не убивали хуки молча
+    assert 'bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/cme_hook.sh retrieve' in cmds
 
     assert memory.is_dir()                                  # каталог памяти создан
 

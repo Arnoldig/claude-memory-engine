@@ -66,9 +66,14 @@ def test_report_names_the_coverage(cfg) -> None:
 
 
 def test_report_stays_quiet_without_override(cfg) -> None:
-    """Тест на ПРОПУСК: у проекта без локализации в отчёте нет строки про покрытие."""
+    """Тест на ПРОПУСК: у проекта без локализации в отчёте нет строки про покрытие.
+
+    Проверяем отсутствие САМОЙ строки покрытия, а не числа ключей: число
+    (len(DEFAULT_MESSAGES)) случайно совпадало с номером временной папки pytest
+    в пути memory_dir, и тест краснел от подстроки, к покрытию отношения не
+    имеющей (поймано при len == 178 в каталоге pytest-178)."""
     before = "\n".join(SC.report(cfg))
-    assert str(len(DEFAULT_MESSAGES)) not in before
+    assert "messages translated" not in before
 
 
 def test_coverage_is_not_a_session_start_complaint(cfg) -> None:

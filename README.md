@@ -4,7 +4,7 @@
 
 Долговременная автообновляемая память «уроков» для Claude Code: нужный урок показывается сам, когда он пригодится. Подбор подходящих уроков ведёт обычный код, а не ИИ, поэтому работает быстро, офлайн и без сторонних зависимостей.
 
-![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 1277](https://img.shields.io/badge/tests-1277-brightgreen)
+![Лицензия: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue) ![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue) ![Зависимости: нет](https://img.shields.io/badge/dependencies-none-brightgreen) ![Тесты: 1329](https://img.shields.io/badge/tests-1329-brightgreen)
 
 **Русский** · [English](README.en.md)
 
@@ -192,6 +192,7 @@ flowchart LR
 | Журнал делегирования суб-агентам | `subagent_efficiency_log` |
 | Актуальность линейки моделей (реактивно + суточно) | `llm_actuality` |
 | Самопроверка настроек | `self_check` |
+| Рассылка универсальных shell-стражей и сверка их дрейфа (`claude-memory sync-guards`) | `guards_sync` |
 
 ### Проверить, что путь к урокам настроен верно
 

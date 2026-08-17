@@ -270,6 +270,8 @@ def _guard_states(cfg: MemoryConfig) -> Tuple[List[str], List[str]]:
         # неотличим от работающего.
         ("stale_reconcile.guard.instructions_size",
          (getattr(cfg, "instructions_budget_chars", 0) or 0) > 0),
+        ("stale_reconcile.guard.core_wall",
+         (getattr(cfg, "core_wall_bytes", 0) or 0) > 0),
         ("stale_reconcile.guard.no_keywords",
          bool(getattr(cfg, "no_keywords_nudge_enabled", False))),
         ("stale_reconcile.guard.commit_review",

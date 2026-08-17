@@ -12,8 +12,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .messages import msg
 
@@ -48,20 +49,43 @@ def _command(hook_script: str, event: str) -> str:
     return f"bash {hook_script} {event}"
 
 
-def merge_settings(settings: Dict, hook_script_abspath: str) -> Tuple[Dict, int]:
-    """Вмёрджить регистрации движка в settings (dict). Возвращает (новый_settings, добавлено).
+def portable_script_ref(hook_script_abspath: str, project_root: str) -> str:
+    """Путь скрипта для команды хука: через "$CLAUDE_PROJECT_DIR", если скрипт
+    лежит внутри проекта; иначе абсолютный как есть.
 
-    Идемпотентно: записи, уже присутствующие (по подстроке `cme_hook.sh <event>`), не
-    дублируются. Чужие хуки не трогаются.
-    """
+    Абсолютный путь в settings.json — источник класса «мёртвая установка»:
+    переименование учётной записи или переезд каталога проекта молча убивает
+    все хуки разом (замерено 2026-08-17: в двух проектах 28 команд около месяца
+    указывали на несуществующий каталог, и ни одна не сказала об этом — упавший
+    запуск хука неотличим от «хук промолчал»). Claude Code раскрывает
+    $CLAUDE_PROJECT_DIR в команде хука (документированный Path Placeholder);
+    кавычки — против пробелов в пути проекта."""
+    try:
+        rel = os.path.relpath(
+            os.path.abspath(hook_script_abspath), os.path.abspath(project_root)
+        )
+    except ValueError:  # другой диск на Windows и т.п.
+        return hook_script_abspath
+    if rel.startswith(".."):
+        return hook_script_abspath
+    return '"$CLAUDE_PROJECT_DIR"/' + rel.replace(os.sep, "/")
+
+
+def merge_hook_entries(settings: Dict, entries) -> Tuple[Dict, int]:
+    """Идемпотентное слияние ПРОИЗВОЛЬНЫХ регистраций хуков в settings (dict).
+
+    entries — [(событие, matcher, command, timeout, маркер-идемпотентности)].
+    Запись со своим маркером, уже присутствующая где-либо в событии, не
+    дублируется; чужие хуки не трогаются. Общая механика для регистраций
+    движка (merge_settings) и стражей (guards_sync) — два разных слияния с
+    одинаковыми правилами были бы отставшей копией друг друга."""
     if not isinstance(settings, dict):
         settings = {}                       # валидный, но не-объектный JSON → как пустой
     out = json.loads(json.dumps(settings))  # глубокая копия, не мутируем вход
     hooks = out.setdefault("hooks", {})
     added = 0
-    for event_name, matcher, ev, timeout in HOOK_REGISTRATIONS:
+    for event_name, matcher, command, timeout, marker in entries:
         groups = hooks.setdefault(event_name, [])
-        marker = f"cme_hook.sh {ev}"
         # уже зарегистрировано где-либо в этом событии?
         already = any(
             marker in str(h.get("command", ""))
@@ -72,7 +96,7 @@ def merge_settings(settings: Dict, hook_script_abspath: str) -> Tuple[Dict, int]
         )
         if already:
             continue
-        entry = {"type": "command", "command": _command(hook_script_abspath, ev), "timeout": timeout}
+        entry = {"type": "command", "command": command, "timeout": timeout}
         # найти группу с тем же matcher; иначе создать
         target = next(
             (g for g in groups if isinstance(g, dict) and g.get("matcher", "") == matcher),
@@ -84,6 +108,26 @@ def merge_settings(settings: Dict, hook_script_abspath: str) -> Tuple[Dict, int]
             target.setdefault("hooks", []).append(entry)
         added += 1
     return out, added
+
+
+def merge_settings(
+    settings: Dict, hook_script_abspath: str, project_root: Optional[str] = None
+) -> Tuple[Dict, int]:
+    """Вмёрджить регистрации движка в settings (dict). Возвращает (новый_settings, добавлено).
+
+    Идемпотентно: записи, уже присутствующие (по подстроке `cme_hook.sh <event>`), не
+    дублируются. Чужие хуки не трогаются. С project_root команда пишется переносимо —
+    через "$CLAUDE_PROJECT_DIR" (см. portable_script_ref); без него — как передана.
+    """
+    script_ref = (
+        portable_script_ref(hook_script_abspath, project_root)
+        if project_root else hook_script_abspath
+    )
+    entries = [
+        (event_name, matcher, _command(script_ref, ev), timeout, f"cme_hook.sh {ev}")
+        for event_name, matcher, ev, timeout in HOOK_REGISTRATIONS
+    ]
+    return merge_hook_entries(settings, entries)
 
 
 def load_settings(path: str) -> Dict:
@@ -105,9 +149,11 @@ def write_settings(path: str, settings: Dict) -> None:
     tmp.replace(p)
 
 
-def install_into_settings(path: str, hook_script_abspath: str) -> int:
+def install_into_settings(
+    path: str, hook_script_abspath: str, project_root: Optional[str] = None
+) -> int:
     """Прочитать settings.json, вмёрджить, записать атомарно. Возвращает число добавленных."""
-    merged, added = merge_settings(load_settings(path), hook_script_abspath)
+    merged, added = merge_settings(load_settings(path), hook_script_abspath, project_root)
     write_settings(path, merged)
     return added
 

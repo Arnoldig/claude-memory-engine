@@ -162,3 +162,24 @@ def test_удаление_ветки_проходит(tmp_path) -> None:
     p = subprocess.run(["bash", str(PREPUSH), "origin", str(tmp_path / "origin.git")],
                        input=ввод, cwd=str(репо), capture_output=True, text=True)
     assert p.returncode == 0
+
+
+def test_empty_word_list_is_named_aloud(tmp_path) -> None:
+    """Файл списка есть, но действующих слов ноль: отправка разрешена, но хук
+    обязан сказать, что словесная проверка не выполнялась, — «не проверяли»
+    неотличимо от «проверили, чисто» (зеркало правки 9a57ea8 в страже команд)."""
+    репо = _репозиторий(tmp_path, со_списком=False)
+    (репо / ".claude" / "private-words.txt").write_text("# только комментарий\n\n",
+                                                        encoding="utf-8")
+    p = _отправка(репо)
+    assert p.returncode == 0
+    assert "выполнялась" in p.stderr
+
+
+def test_missing_word_list_stays_silent(tmp_path) -> None:
+    """Файла нет вовсе → пропуск БЕЗ предупреждения (намеренно: у стороннего
+    участника списка нет, и шумящий на каждую отправку хук сняли бы вместе
+    с защитой)."""
+    репо = _репозиторий(tmp_path, со_списком=False)
+    p = _отправка(репо)
+    assert p.returncode == 0 and p.stderr.strip() == ""

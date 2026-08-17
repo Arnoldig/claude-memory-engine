@@ -36,9 +36,14 @@
 from __future__ import annotations
 
 import difflib
+import json
+import os
 import re
+import shlex
+import subprocess
 from dataclasses import replace
-from typing import List, Tuple
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 from . import claude_code_env
 from .applies_to import iso_date_or_none, read_head
@@ -311,6 +316,105 @@ def _own_lesson_count(cfg: MemoryConfig) -> int:
         return 0
 
 
+_PROJECT_SETTINGS_SCOPES = (".claude/settings.json", ".claude/settings.local.json")
+
+
+def _command_script_path(cmd: str, project_root: str) -> Optional[str]:
+    """Путь скрипта из команды хука, если его можно НАДЁЖНО извлечь; иначе None.
+
+    Разобрать произвольный shell нельзя (регулярка против shell — проигранная
+    война), и мы не пытаемся: берём только формы `bash <путь> …` / `sh <путь> …` /
+    `<путь> …`, где путь абсолютный или начинается с $CLAUDE_PROJECT_DIR (его
+    раскрываем от project_root — ровно так делает и хозяин). Всё прочее — чужие
+    переменные, бинарь из PATH, конвейер — None: «не смогли проверить» здесь
+    законно молчит, проверка диагностическая и потеря обратима."""
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        return None
+    if not parts:
+        return None
+    tok = parts[0]
+    if tok in ("bash", "sh", "zsh") and len(parts) > 1:
+        tok = parts[1]
+    for var in ("$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR}"):
+        if tok.startswith(var):
+            tok = project_root + tok[len(var):]
+            break
+    if "$" in tok:
+        return None
+    if not os.path.isabs(tok):
+        return None
+    return tok
+
+
+def hook_command_issues(cfg: MemoryConfig) -> List[str]:
+    """Мёртвые команды хуков: command указывает на несуществующий файл.
+
+    Класс «мёртвая установка»: не запустившийся хук неотличим от хука, которому
+    нечего сказать (замерено 2026-08-17 — в двух проектах 28 команд около месяца
+    указывали на каталог переименованной учётной записи). Проверяются ТОЛЬКО
+    проектные области настроек: движок ставит хуки туда, а жалобы на глобальные
+    хуки пользователя повторялись бы в каждом проекте чужим шумом. Цена — по
+    одному stat на команду, лицензия SessionStart-пути это разрешает."""
+    out: List[str] = []
+    root = cfg.project_root
+    for scope in _PROJECT_SETTINGS_SCOPES:
+        try:
+            data = json.loads((Path(root) / scope).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        hooks = data.get("hooks") if isinstance(data, dict) else None
+        if not isinstance(hooks, dict):
+            continue
+        for event, groups in hooks.items():
+            if not isinstance(groups, list):
+                continue
+            for g in groups:
+                if not isinstance(g, dict) or not isinstance(g.get("hooks"), list):
+                    continue
+                for h in g["hooks"]:
+                    if not isinstance(h, dict):
+                        continue
+                    path = _command_script_path(str(h.get("command", "")), root)
+                    if path and not os.path.isfile(path):
+                        out.append(msg(cfg, "self_check.hook_cmd_missing",
+                                       scope=scope, event=str(event), path=path))
+    return out
+
+
+def wrapper_interpreter_issues(cfg: MemoryConfig) -> List[str]:
+    """Интерпретатор, закреплённый в cme_hook.sh, не поднимает пакет → КАЖДЫЙ хук
+    движка умирает на старте, молча (fail-open глотает и это).
+
+    Только verbose-путь (doctor/CLI): проверка запускает субпроцесс, а лицензия
+    SessionStart-пути — конфиги и метаданные, без запусков. Не смогли проверить
+    (таймаут, ошибка запуска) → молчим: диагностика, потеря обратима."""
+    wrapper = Path(cfg.project_root) / ".claude" / "hooks" / "cme_hook.sh"
+    try:
+        body = wrapper.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    m = re.search(r"exec\s+(\S+)\s+-m\s+claude_memory", body)
+    if not m:
+        return []
+    interp = m.group(1)
+    if not os.path.isfile(interp):
+        return [msg(cfg, "self_check.hook_interp_broken",
+                    wrapper=str(wrapper), interp=interp)]
+    try:
+        proc = subprocess.run(
+            [interp, "-c", "import claude_memory"],
+            capture_output=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return [msg(cfg, "self_check.hook_interp_broken",
+                    wrapper=str(wrapper), interp=interp)]
+    return []
+
+
 def bad_date_issues(cfg: MemoryConfig) -> List[Tuple[str, str]]:
     """[(поле, значение)] для полей-дат конфига не в строгом ISO.
 
@@ -391,6 +495,14 @@ def warnings(cfg: MemoryConfig = None, verbose: bool = False) -> List[str]:
     out += [msg(cfg, "self_check.empty_topic_order")
             for code in topic_order_issues(cfg) if code == "empty"]
     out += settings_issues(cfg)
+    out += hook_command_issues(cfg)
+    if verbose:
+        # субпроцесс — только по явной просьбе человека (doctor/CLI), не на SessionStart
+        out += wrapper_interpreter_issues(cfg)
+        # дрейф копий стражей: тоже только по просьбе — проект вправе намеренно
+        # держать свою редакцию, и жалоба каждую сессию сняла бы проверку целиком
+        from . import guards_sync
+        out += guards_sync.drift_issues(cfg)
     # Не под `verbose`: значение отброшено, движок работает на дефолте, и без жалобы
     # в обычном режиме это ровно то молчание, ради которого заведена заявка #21 —
     # владелец уверен, что настройка действует, а она не действует.

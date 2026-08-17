@@ -4,6 +4,23 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.24.0] — 2026-08-17
+
+### Added
+- **The platform wall for the hot core — `core_wall_bytes` (default 25 600, exactly 0 disables).** Claude Code loads the first 200 lines OR the first 25 KB of the auto-memory file, whichever ends first; the rest silently never reaches context. The quality budget in characters (`core_budget_bytes`) cannot stand in for this mechanic: a Cyrillic letter weighs two bytes in UTF-8, so a Russian core crosses the byte wall before the character budget says "over" (measured on a live project: a 28-thousand-byte core whose freshest entries were already being dropped). The wall is measured separately and in the wall's own unit — file bytes; the early warning uses the existing `core_warn_ratio`, and crossing the wall gets its own message ("the tail of this file is already missing from context"). The character-based quality budget is a deliberate decision and stays untouched.
+- **`claude-memory sync-guards` — distribution of the universal shell guards (module `guards_sync`).** Five guards (work snapshot, destructive-git-command guard, private-words publication guard, rules delivery into worktrees, main-checkout drift notice) used to be hand-copied between projects, and the copies drifted silently. The reference editions now travel inside the package; the command places them into the project's `.claude/hooks/` and registers them in settings.json idempotently, and doctor (verbose) names any drift aloud. Project-specific exceptions of the private-words guard still live in `.claude/private-words-allow.txt`.
+- **doctor sees a "dead install".** A hook command pointing at a non-existent file is now named aloud at every session start; an interpreter pinned in `cme_hook.sh` that cannot import the package — in doctor's verbose mode. A hook that fails to launch is indistinguishable from a hook that had nothing to say: in two live projects, 28 commands pointed at a renamed account's directory for about a month, and none of them said a word.
+- **The manual model-lineup re-verification reminder works again.** `model_registry_verified_on` older than `model_registry_max_age_days` → a SessionStart reminder (`model_registry_guard.stale_nudge`). The config.py comment had promised this since 0.21.0, but after the first check moved into `llm_actuality`, nothing called the second one.
+
+### Changed
+- **The installer writes hook commands portably** — via `"$CLAUDE_PROJECT_DIR"` instead of an absolute path (when the wrapper lives inside the project). Moving or renaming the project directory no longer kills every hook silently.
+- Archive-prune candidates carry the path relative to the archive rather than a bare file name: with same-named files in different archive subfolders, `archive_prune --apply` could back up and delete the wrong one. The backup now preserves the subfolder too.
+- The precedent index recognises lesson references by the shared lesson definition (`lesson_files`), not by a name prefix: lessons in plain kebab-case — the ones the built-in auto-memory writes — were invisible to it.
+
+### Fixed
+- **"Exactly 0 disables a numeric guard" was not implemented in three places.** `core_budget_bytes=0` warned on every core write (both in bloat-check and before context compaction), `feedback_warn_bytes=0` warned on every lesson, and `marker_limit=0` turned the advisory marker-format guard into one that blocks every edit of the session file. Zero now disables the check; each case has a paired silence test.
+- The parallel-edit guard's refusal text is no longer hard-coded in Russian: it moved into the message catalogue (`concurrency.conflict_reason`) and localises like every other engine phrase.
+
 ## [0.23.0] — 2026-08-16
 
 ### Added

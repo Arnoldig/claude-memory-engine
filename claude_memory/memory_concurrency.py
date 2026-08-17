@@ -22,6 +22,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from .messages import msg
+
 MARKER_PREFIX = "claude-memcas-"
 
 
@@ -60,7 +62,9 @@ def record_seen(session_id: str, file_path: str, tmpdir: str) -> None:
         return
 
 
-def conflict_reason(session_id: str, file_path: str, tmpdir: str) -> Optional[str]:
+def conflict_reason(
+    session_id: str, file_path: str, tmpdir: str, cfg=None
+) -> Optional[str]:
     """Текст-причина deny, если файл изменён другой сессией с момента, когда ЭТА
     сессия его последний раз видела (читала/писала); иначе None.
 
@@ -83,9 +87,6 @@ def conflict_reason(session_id: str, file_path: str, tmpdir: str) -> Optional[st
         return None  # файла нет → нечего терять
     if current == recorded:
         return None  # правим ту версию, что видели → ок
-    return (
-        f"Файл памяти {os.path.basename(file_path)} изменён другой сессией с момента, "
-        "когда ты его последний раз читал/писал (параллельная сессия успела записать "
-        "между твоими чтением и правкой). Чтобы не затереть её изменение: перечитай "
-        "файл (Read), затем повтори свою правку — она пройдёт. [memory-concurrency-guard]"
-    )
+    # текст — через каталог сообщений: дефолт языко-нейтрален, проект переводит
+    # ключом concurrency.conflict_reason; cfg=None легален (msg возьмёт дефолт)
+    return msg(cfg, "concurrency.conflict_reason", filename=os.path.basename(file_path))

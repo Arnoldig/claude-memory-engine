@@ -99,7 +99,11 @@ def scan_archive_stale(
         elapsed = _months_elapsed(a, today)
         if elapsed >= n:
             dm = _DESC_RE.search(fm)
-            out.append((a.isoformat(), os.path.basename(mf), elapsed, strip_scalar(dm.group(1)) if dm else ""))
+            # путь ОТНОСИТЕЛЬНО архива, не basename: обход рекурсивный, и у тёзок в
+            # разных подпапках basename не различает файлы — archive_prune удалял бы
+            # первое совпадение поиска по имени, то есть возможно не тот файл
+            rel = os.path.relpath(mf, arc_root)
+            out.append((a.isoformat(), rel, elapsed, strip_scalar(dm.group(1)) if dm else ""))
     out.sort()
     return out
 
