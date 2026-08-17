@@ -40,6 +40,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -399,19 +400,36 @@ def wrapper_interpreter_issues(cfg: MemoryConfig) -> List[str]:
     if not m:
         return []
     interp = m.group(1)
-    if not os.path.isfile(interp):
-        return [msg(cfg, "self_check.hook_interp_broken",
-                    wrapper=str(wrapper), interp=interp)]
+    if os.path.isabs(interp):
+        if not os.path.isfile(interp):
+            return [msg(cfg, "self_check.hook_interp_broken",
+                        wrapper=str(wrapper), interp=interp)]
+    else:
+        # вшитый вариант обёртки зовёт интерпретатор ПО ИМЕНИ (résolve через
+        # PATH) — искать файл с таким именем в текущем каталоге было бы ложной
+        # тревогой на каждой здоровой установке (поймано живым прогоном doctor
+        # по пяти проектам 2026-08-17)
+        found = shutil.which(interp)
+        if not found:
+            return [msg(cfg, "self_check.hook_interp_broken",
+                        wrapper=str(wrapper), interp=interp)]
+        interp = found
+    env = dict(os.environ)
+    if "memory_engine" in body:
+        # обёртка сама выставляет PYTHONPATH на вшитую копию — проверка обязана
+        # импортировать в тех же условиях, в каких работает хук
+        vendored = str(Path(cfg.project_root) / ".claude" / "memory_engine")
+        env["PYTHONPATH"] = vendored + os.pathsep + env.get("PYTHONPATH", "")
     try:
         proc = subprocess.run(
             [interp, "-c", "import claude_memory"],
-            capture_output=True, timeout=10,
+            capture_output=True, timeout=10, env=env,
         )
     except (OSError, subprocess.SubprocessError):
         return []
     if proc.returncode != 0:
         return [msg(cfg, "self_check.hook_interp_broken",
-                    wrapper=str(wrapper), interp=interp)]
+                    wrapper=str(wrapper), interp=m.group(1))]
     return []
 
 

@@ -347,3 +347,28 @@ def test_wrapper_interp_healthy_silent(cfg) -> None:
     import sys as _sys
     _write_wrapper(cfg.project_root, _sys.executable)
     assert not any("cme_hook.sh" in w for w in SC.warnings(cfg, verbose=True))
+
+
+def test_wrapper_vendored_python3_from_path_is_silent(cfg) -> None:
+    """Ложная тревога, пойманная живым прогоном doctor по пяти проектам 17.08.2026:
+    вшитый вариант обёртки зовёт `python3` ПО ИМЕНИ (résolve через PATH) и сам
+    выставляет PYTHONPATH на .claude/memory_engine — проверка же искала файл
+    с именем `python3` и импортировала без этого пути, крича «интерпретатор
+    сломан» на здоровой установке."""
+    vend = Path(cfg.project_root) / ".claude" / "memory_engine" / "claude_memory"
+    vend.mkdir(parents=True, exist_ok=True)
+    (vend / "__init__.py").write_text("", encoding="utf-8")
+    w = Path(cfg.project_root) / ".claude" / "hooks" / "cme_hook.sh"
+    w.parent.mkdir(parents=True, exist_ok=True)
+    w.write_text(
+        '#!/usr/bin/env bash\n'
+        'CLAUDE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\n'
+        'export PYTHONPATH="$CLAUDE_DIR/memory_engine:${PYTHONPATH:-}"\n'
+        'exec python3 -m claude_memory.hooks_cli "$@"\n', encoding="utf-8")
+    assert not any("cme_hook.sh" in x for x in SC.warnings(cfg, verbose=True))
+
+
+def test_wrapper_interp_name_not_on_path_flagged(cfg) -> None:
+    # имя, которого нет в PATH, — честная жалоба (парный случай к молчанию выше)
+    _write_wrapper(cfg.project_root, "nosuch-python3-xyz")
+    assert any("nosuch-python3-xyz" in x for x in SC.warnings(cfg, verbose=True))

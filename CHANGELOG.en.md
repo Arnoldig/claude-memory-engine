@@ -4,6 +4,11 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.24.1] — 2026-08-17
+
+### Fixed
+- **The wrapper-interpreter check (doctor, introduced in 0.24.0) cried wolf on a healthy vendored install.** The vendored wrapper invokes the interpreter BY NAME (`python3`, resolved via PATH) and sets PYTHONPATH to `.claude/memory_engine` itself — while the check looked for a file literally named `python3` and imported the package without that path. Caught by running doctor against five live projects on release day: five false "interpreter broken" complaints on five working installs. The interpreter name is now resolved via PATH, and the import check runs under the same conditions as the hook itself.
+
 ## [0.24.0] — 2026-08-17
 
 ### Added
