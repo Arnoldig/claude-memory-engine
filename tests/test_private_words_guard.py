@@ -658,3 +658,115 @@ def test_the_warning_never_replaces_a_real_block(sandbox: Path) -> None:
     """Когда слово найдено, страж БЛОКИРУЕТ, а не рассказывает про список."""
     p = _run(f'gh issue create --title t --body "про {SECRET}"', sandbox)
     assert p.returncode == 2 and not p.stdout.strip()
+
+
+# ── опознание: запрещено всё, кроме читающего (замер 2026-11-02) ────────────────
+# Прежде опознание перечисляло ПУБЛИКУЮЩЕЕ: приставки перед `gh` и публикующие подкоманды.
+# Замер на текущем тогда коде: 12 из 23 публикующих форм проходили с кодом 0 — незнакомая
+# приставка, флаг между `gh` и подкомандой, подкоманда вне перечня, прилипшее поле `api`.
+# Теперь публикацией считается любой вызов `gh`, кроме закрытого перечня читающих.
+
+def _stops(p: subprocess.CompletedProcess) -> bool:
+    """True — остановлено с объяснением (любым); False — пропущено молча. Иное → провал.
+
+    Причина остановки не проверяется: после опознания команда с `$`, `|`, `>` блокируется
+    раньше слова из списка, и наружу в обоих случаях не уходит ничего.
+    """
+    if p.returncode == 2 and p.stderr.strip():
+        return True
+    if p.returncode == 0 and not p.stderr.strip():
+        return False
+    pytest.fail(f"страж сломан: код={p.returncode}, stderr={p.stderr[:200]!r}")
+
+
+@pytest.mark.parametrize("template", [
+    # приставки перед `gh` — их больше не перечисляем
+    'sudo -u someone gh issue comment 1 --body "{w}"',
+    'xargs gh issue comment 1 --body "{w}"',
+    'timeout 30 gh issue comment 1 --body "{w}"',
+    'for n in 1 2; do gh pr close $n --comment "{w}"; done',
+    '"gh" issue comment 1 --body "{w}"',
+    'gh 2>&1 issue comment 1 --body "{w}"',
+    # флаг между `gh` и подкомандой
+    'gh -R o/r issue comment 1 --body "{w}"',
+    'gh issue -R o/r comment 1 --body "{w}"',
+    # подкоманды, которых не было в перечне публикующих
+    'gh repo edit --description "{w}"',
+    'gh label create "{w}"',
+    'gh discussion create --title "{w}"',
+    'gh project item-add 1 --title "{w}"',
+    'gh secret set NAME --body "{w}"',
+    # тело `api`: прилипшее поле и поле после конвейера внутри кавычек
+    'gh api repos/o/r/issues -fbody={w}',
+    'gh api repos/o/r/issues -Fbody={w}',
+    "gh api repos/o/r/issues --jq '.[] | .t' -f body={w}",
+])
+def test_any_gh_call_outside_the_read_list_is_publishing(sandbox: Path, template: str) -> None:
+    assert _stops(_run(template.format(w=SECRET), sandbox))
+
+
+@pytest.mark.parametrize("command", [
+    # Парные пропуски: читающие вызовы, в том числе в цепочке и с конвейером.
+    "gh issue list | head",
+    "gh pr checks 1 --watch",
+    "gh run watch $RUN",
+    "gh pr view 1 --json body -q .body | grep " + SECRET,
+    "gh api repos/o/r --jq '.[] | .t'",
+    "gh api repos/o/r/issues --method=GET",
+    "gh api repos/o/r/issues -X GET",
+    "[ -f x ] && gh api repos/o/r | head",
+    "which gh && gh auth status 2>&1 | head",
+    "command -v gh || echo нет",
+    "$(which gh) --version",
+    "gh --version",
+    "gh pr checkout 5",
+    "gh release download v1",
+    "gh repo clone o/r",
+    "gh issue view 1 --comments",
+    "gh issue view 1 --web",
+    "gh search issues " + SECRET + " --repo o/r",
+])
+def test_read_only_gh_calls_pass(sandbox: Path, command: str) -> None:
+    """Без этой половины набор зеленел бы на страже, который блокирует любой `gh`."""
+    assert not _stops(_run(command, sandbox))
+
+
+@pytest.mark.parametrize("command", [
+    # Текст пишется в браузере или редакторе — страж его не видит (решение владельца
+    # 02.11.2026: непроверяемое блокируется).
+    "gh issue create --title x --web",
+    "gh pr create --title x -w",
+    "gh issue comment 1 --editor",
+    "gh pr comment 1 -e",
+    "gh issue create --title x",
+    "gh pr create --title x",
+    "gh issue comment 1",
+])
+def test_text_from_editor_or_browser_is_blocked(sandbox: Path, command: str) -> None:
+    assert _stops(_run(command, sandbox))
+
+
+@pytest.mark.parametrize("command", [
+    # Парные пропуски: тот же канал с текстом в самой команде, и вызовы без текста вовсе.
+    'gh issue create --title x --body "обычный текст"',
+    'gh pr create --title x -b "обычный текст"',
+    'gh issue comment 1 --body "обычный текст"',
+    "gh issue close 5",
+    "gh pr merge 5 --squash",
+])
+def test_text_given_in_the_command_passes(sandbox: Path, command: str) -> None:
+    assert not _stops(_run(command, sandbox))
+
+
+def test_many_api_calls_do_not_stall_recognition(sandbox: Path) -> None:
+    """Опознание идёт ДО сторожевого таймера: медленное опознание = таймаут хука = ПРОПУСК.
+    Поиск тела `api` по всей команде делается один раз, а не на каждый `gh api`.
+
+    Тело `api` намеренно НЕ задано: найдись оно, опознание кончилось бы на первом же `gh api`,
+    и тест не заметил бы снятия кэша. Замер 02.11.2026 на этом входе: с кэшем 0,09 с,
+    без кэша 38 с — дольше таймаута хука у потребителей (10 с), то есть пропуск."""
+    command = "gh api x " * 10000 + f'gh issue comment 1 --body "{SECRET}"'
+    started = time.monotonic()
+    p = _run(command, sandbox)
+    assert _stops(p)
+    assert time.monotonic() - started < 3
