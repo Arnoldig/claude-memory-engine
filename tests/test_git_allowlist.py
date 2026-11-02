@@ -92,9 +92,12 @@ def test_обход_через_переменную_блокируется(tmp_p
     При перечислении разрешённого «не разобрал» означает БЛОК, а не пропуск, —
     в этом главный выигрыш перевода.
     """
-    for cmd in ("G=git; $G checkout -- .", "git $(echo checkout) -- .",
-                'git chec""kout -- .'):
-        assert _блокирует(cmd, _грязное(tmp_path / f"о{hash(cmd) % 999}")), cmd
+    # Папка — по номеру команды, а не по `hash(cmd) % 999`: хеш строк в каждом запуске свой,
+    # и при совпадении двух имён второй репозиторий падал на пустом `git commit`
+    # (CI 02.11.2026; воспроизводится `PYTHONHASHSEED=335`).
+    for номер, cmd in enumerate(("G=git; $G checkout -- .", "git $(echo checkout) -- .",
+                                 'git chec""kout -- .')):
+        assert _блокирует(cmd, _грязное(tmp_path / f"о{номер}")), cmd
 
 
 def test_согласование_владельца_снимает_блок(tmp_path) -> None:
