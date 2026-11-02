@@ -4,6 +4,14 @@
 
 Notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **The private-words guard now recognises publishing as "everything is forbidden except reading".** It used to enumerate what publishes — prefixes before `gh` (`sudo`, `env`, …) and publishing subcommands — and both lists leaked: 12 of 23 publishing forms went through unchecked (`sudo -u … gh`, `xargs gh`, `gh -R o/r issue comment`, `gh repo edit --description`, `gh label create`, the attached `gh api -fbody=…` field, a field after a `|` inside quotes). Now any `gh` call counts as publishing except a closed list of read-only subcommands (`list`, `view`, `status`, `checks`, `diff`, `clone`, `download`, `gh api` with no body and no write method). Measured on 69 846 commands: everything the guard caught before is still caught; 141 more commands are stopped, 4 of them real publications that used to go out unchecked.
+- **Text typed in a browser or an editor no longer leaves silently**: `--web`, `-w`, `--editor`, `-e`, and creating an issue, a pull request or a comment with no text in the command are blocked — the guard cannot see that text.
+
+The price, stated: a mention of a `gh` command inside another command's text (`echo`, `grep`, heredoc) is now blocked when the same line contains `$`, `|`, `;`, `&`, `<` or `>`. Write such text into a file with the file-writing tool instead of `cat <<EOF`.
+
 ## [0.24.1] — 2026-08-17
 
 ### Fixed
